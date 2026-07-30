@@ -1,6 +1,6 @@
 # Architecture
 
-Updated at the end of each phase. **Current state: phase 1 (schema and warehouse) complete.**
+Updated at the end of each phase. **Current state: phase 2 (synthetic data) complete.**
 
 ## System shape
 
@@ -431,6 +431,40 @@ catalog. Without them, three metrics would have been silently uncomputable.
 
 `pool_pre_ping=True` is set for Neon's idle disconnects and is harmless locally.
 
+## The generator (`backend/seed/`)
+
+Not part of the running application — a build-time tool that fills the warehouse. Its structure
+mirrors `app/models/` so a table and the code that populates it are easy to line up.
+
+| Module | Responsibility |
+|---|---|
+| `util.py` | Pure date and decimal helpers. No RNG, no database. |
+| `reference.py` | The 36-month window, fixed dimension rows, surrogate-key maps, name pools. |
+| `scenarios.py` | The six planted scenarios as typed targets with tolerances, plus company baselines. |
+| `spine.py` | `dim_date`, including the holiday list behind `is_workday`. |
+| `people.py` | Employees, employment events, the monthly snapshot, and the hazard model. |
+| `recruiting.py` | Requisitions, applications, funnel stage events. |
+| `engagement.py` | Survey responses, driver scores, themed open text. |
+| `productivity.py` | Timesheets, absence, goals, revenue, training, reviews. |
+| `generate.py` | Orchestration and CLI: `--scale`, `--reset`, `--no-validate`. |
+| `validate.py` | The five-section report and the six scenario assertions. |
+
+**Two generation modes, used deliberately.** Ambient patterns are *sampled* from relative
+monthly hazard weights. Any number the demo says out loud is *forced* exactly — M-114 has
+precisely six exits with four rated 4+. Exit totals use weighted sampling **without replacement
+to an exact count**, so stated volumes hold while relative patterns stay realistic.
+
+**Determinism is verified, not asserted.** `random.seed(42)` and
+`numpy.random.default_rng(42)` are necessary but insufficient: surrogate keys are identity
+columns, so `--reset` truncates with `RESTART IDENTITY CASCADE` and sequences are resynced
+afterwards (otherwise phase 6's first insert into a seeded table would collide on a primary
+key). `python -m seed.validate --checksum` hashes row counts plus key aggregates; two
+consecutive full runs must produce the same digest.
+
+**Validation recomputes independently.** Every assertion in `validate.py` is written in raw SQL
+from `docs/METRICS.md`, never by calling generator helpers — otherwise it would only confirm the
+generator agrees with itself. The current report lives in `docs/SEED_VALIDATION.md`.
+
 ## What exists now (phase 1)
 
 - 21 tables as ORM models across 7 modules in `app/models/`, all registered in
@@ -441,7 +475,29 @@ catalog. Without them, three metrics would have been silently uncomputable.
   indexes. Counts reconciled against the ERD above rather than against the models.
 - 25 passing tests: 15 schema guards (metadata only, no connection needed), 6 config, 4 health.
 - `/health/db` returns 200.
-- Still **zero views, zero metric implementations, zero rows** — phases 2 and 3.
+
+## What exists now (phase 2)
+
+- **216,432 rows** across 21 tables, generated in 27s. 1,850 employees, headcount running
+  1,150 → 1,200; 43,693 snapshot rows; 88,484 timesheet weeks; 8,692 applications converting to
+  700 hires; 5,044 survey responses; 770 requisitions.
+- **All six planted scenarios verified present** within tolerance — see
+  `docs/SEED_VALIDATION.md`.
+- 66 passing tests, up from 25.
+- `fact_flight_risk_score` and `fact_comment_theme` remain deliberately empty; they are written
+  in phases 3 and 6.
+- Still **zero views and zero metric implementations** — phase 3.
+
+### Deviations from BUILD_PLAN §3 volumes
+
+- **770 requisitions, not 410.** One opening per requisition is what makes time to fill exact;
+  batching hires weeks apart dragged `opened_date` backwards and measured 183 days against a
+  74-day target. Time to fill is an asserted scenario number, the requisition count is not.
+- **8,692 applications** against "~9,200" — a consequence of per-channel conversion rates.
+- **Managers never terminate**, so `manager_id` always points at an active employee and span of
+  control stays stable.
+- **Company time to fill is 43.8 days** against the plan's 38, passing at the edge of its ±6
+  tolerance. Sales' 74 is exact.
 
 ### One migration trap worth remembering
 
@@ -454,5 +510,7 @@ hypothetical one.
 
 ## Next
 
-Phase 2 generates the synthetic data with all six planted scenarios, then prints a validation
-report proving each scenario is present before any dashboard depends on it.
+Phase 3 builds the metrics layer test-first: a 12-employee hand-computed fixture
+(`tests/fixtures/tiny_org.py`), then each of the four domains in order — retention,
+acquisition, engagement, productivity — followed by an independent raw-SQL recomputation of
+every metric by the `metric-verifier` subagent.

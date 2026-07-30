@@ -143,3 +143,69 @@ downgrade→upgrade round-trips cleanly.
 **Blockers.** None carried into phase 2. Two open items: `ANTHROPIC_API_KEY` is still empty
 (needed in phase 6), and the database password appears in this session's transcript, so it
 should be rotated if the session is ever shared.
+
+---
+
+## Phase 2 — Synthetic data with planted signal (H2:30–H4:30 allotted)
+
+**Prompt strategy.** `/phase 2`, plan mode again. BUILD_PLAN §6 says to use the
+`data-generator` subagent, and that was **put back to the user rather than followed**: the
+subagent starts with no knowledge of the 21 tables built an hour earlier, and column-name drift
+is the dominant failure mode for a 1,500-line insert script across 21 tables. Written inline
+instead, with the subagent definition left committed as the record of the method that was
+considered. Three other decisions were surfaced as explicit questions instead of assumed — the
+three metrics with no source table, what "team" means, and which database to target — and a
+`--scale` flag was added for fast iteration.
+
+**Accepted.** The split between *forced* and *sampled* generation is what makes this work.
+Ambient texture — department base rates, tenure curves, channel effects — comes from relative
+monthly hazard weights. Anything the Loom says out loud is forced exactly: M-114 has precisely
+six exits with precisely four rated 4+, because "four of his six leavers were high performers"
+is a sentence spoken on camera and a sampled 5-of-7 would make the narration wrong. Exit
+totals come from **weighted sampling without replacement to an exact count**, so the plan's
+volumes hold precisely while relative patterns stay realistic; a per-month coin flip would have
+produced a different headcount every time a hazard was tuned. Scenario targets live in
+`scenarios.py` as typed dataclasses carrying a target *and* a tolerance, and `validate.py`
+recomputes each one from the database in raw SQL written from docs/METRICS.md rather than from
+generator helpers — reusing the generator's own code would only confirm it agrees with itself.
+Hours were derived by solving the metric definitions backwards: overtime rate 0.22 implies
+40 / 0.78 = 51.3 total hours, and utilization 0.96 implies 38.4 billable of 40 available.
+Choosing hours first and hoping the ratios landed would have satisfied at most one of scenario
+5's two targets.
+
+**Rejected.** The single most valuable rejection this phase was **the first run's output**.
+It completed cleanly, inserted 29,175 rows, and passed only two of six scenarios — and every
+one of the four failures was a real bug that reading the code would not have surfaced.
+(1) M-114 had **~30 reports, not 14**: `_assign_bad_manager_team` added reports but never
+removed M-114 from the general round-robin pool, so two-thirds of the team carried no planted
+signal. That diluted the manager-driver gap from 28 points to 22 and pushed the attrition
+ratio to **0.99 — parity with the company**, meaning the headline demo moment was invisible in
+its own chart. (2) Agency 12-month retention measured **33% against a 62% target**: stage 2
+forced the exact channel exits, then stage 4's sampling added *more* exits inside the same
+12-month horizon. Fixed by confining sampling for measured cohorts to months after the horizon
+closes. (3) Time to fill measured **183 days against 74**: multi-opening requisitions batched
+hires that were weeks apart, dragging `opened_date` backwards. (4) The reorg was transferring
+outsiders *onto* M-114's team, which is why exits read 7 instead of the forced 6. Beyond the
+data, four design choices were discarded: the plan's **410 requisitions** (one opening per req
+is what makes time-to-fill exact, and TTF is asserted where the req count is not, so the count
+rose to 770); my own **18-person team size** for M-114, resized to 14 against *measured*
+company attrition of ~29% in the final three quarters rather than the 18% window average; a
+**flat −28 driver offset**, split into a separate applied offset of 33 because Engineering sits
+above the company mean on that driver and the mean being compared against includes the affected
+team; and the **data-generator subagent** itself.
+
+**The transferable lesson.** Both phases have now found their most serious bug by *running*
+something rather than reading it — the migration by round-tripping a downgrade, the generator
+by validating its output. In both cases the artifact looked correct and executed without error.
+This is the argument for the validation report existing at all.
+
+**Numbers.** 14 files (12 new under `backend/seed/` plus tests, 2 docs updated). 66 tests
+passing, up from 25 — 25 new no-DB guards on scenario definitions, mix tables that must sum to
+1, and the four snapshot activity flags. 3 endpoints live. **216,432 rows across 21 tables in
+27s**, checksum `f7b0b9400782c277` identical across two consecutive full runs. Headcount runs
+1,150 → 1,200 as designed, with 39 exits in March 2026 against a 10-16 baseline — the
+post-reorg spike, visible without being pointed at. All six scenarios PASS.
+
+**Blockers.** None for phase 3. Two notes: company time to fill measures 43.8 days against the
+plan's 38 and passes only at the edge of its ±6 tolerance (Sales' 74 is exact), and
+`ANTHROPIC_API_KEY` is still empty for phase 6.
