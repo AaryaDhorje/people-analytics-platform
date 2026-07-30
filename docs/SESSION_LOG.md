@@ -59,7 +59,8 @@ machine and the alternative was 3.14, new enough that a missing wheel mid-build 
 risk. `requires-python` and ruff's `target-version` are pinned to match, and Render must be
 set to 3.11.
 
-**Numbers.** 54 files (21 backend, 14 frontend, 9 `.claude/`, 6 root, 4 docs). 4 tests
+**Numbers.** 55 files, 5,153 insertions (21 backend, 14 frontend, 9 `.claude/`, 6 root,
+5 docs). 4 tests
 passing. 3 endpoints live: `/`, `/health`, `/health/db`. `ruff check` clean, `ruff format
 --check` clean, `tsc --noEmit` clean, `vite build` green in 245ms.
 
