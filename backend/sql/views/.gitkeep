@@ -1,0 +1,3 @@
+# Analytical views live here, one .sql file per view, owned by the sql-view-author
+# subagent. These views are the metric layer's read surface and the only objects
+# the natural-language query feature is permitted to select from.

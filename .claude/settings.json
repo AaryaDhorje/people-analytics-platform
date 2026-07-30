@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd backend && ruff format --quiet . && ruff check --fix --quiet ."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd backend && pytest -q tests/ -x --no-header --tb=line"
+          }
+        ]
+      }
+    ]
+  }
+}

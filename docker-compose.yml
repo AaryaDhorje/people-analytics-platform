@@ -1,0 +1,24 @@
+# Local Postgres only. The deployed backend uses Neon; this exists so the build
+# does not depend on network access, and so the database can be dropped and
+# regenerated freely while the seed generator is being iterated on.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: people-analytics-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-people}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-people}
+      POSTGRES_DB: ${POSTGRES_DB:-people_analytics}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-people} -d ${POSTGRES_DB:-people_analytics}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

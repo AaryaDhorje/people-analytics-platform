@@ -1,0 +1,51 @@
+[project]
+name = "people-analytics-backend"
+version = "0.1.0"
+description = "People analytics platform — metric services over a synthetic HR warehouse"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi>=0.115",             # API framework
+    "uvicorn[standard]>=0.32",    # ASGI server for local dev
+    "sqlalchemy>=2.0.36",         # typed ORM, 2.0 style only
+    "alembic>=1.14",              # migrations
+    "psycopg[binary]>=3.2",       # Postgres driver; binary wheel avoids a local build toolchain
+    "pydantic>=2.10",             # response models
+    "pydantic-settings>=2.7",     # env-var config with validation
+    "numpy>=2.1",                 # seeded RNG for the synthetic data generator (seed=42)
+    "anthropic>=0.40",            # Claude API client for the AI layer
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",                # required by fastapi TestClient
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N"]
+ignore = ["B008"]  # FastAPI's Depends() in defaults is the documented idiom
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "seed", "tests"]
+# The local alembic/ migration directory makes ruff read the `alembic` package as
+# first-party. It is not.
+known-third-party = ["alembic"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:app.*"]
