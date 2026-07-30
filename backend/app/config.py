@@ -6,9 +6,10 @@ first request.
 """
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -22,7 +23,13 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://people:people@localhost:5432/people_analytics"
 
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    #: `NoDecode` is required, not decorative. Without it, pydantic-settings treats a
+    #: list-typed field as a "complex" value and attempts json.loads() on the raw env
+    #: string *before* any validator runs — so `CORS_ORIGINS=http://localhost:5173`
+    #: raises SettingsError instead of reaching `_split_origins` below.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173"]
+    )
 
     demo_bearer_token: str = "dev-demo-token-change-me"
 

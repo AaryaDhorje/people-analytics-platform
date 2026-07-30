@@ -1,6 +1,10 @@
-# Local Postgres only. The deployed backend uses Neon; this exists so the build
-# does not depend on network access, and so the database can be dropped and
-# regenerated freely while the seed generator is being iterated on.
+# OPTIONAL FALLBACK. Local development uses the PostgreSQL 18 service installed on
+# the host, not this container — see .env.example. Keep this file for a machine with
+# no Postgres installed, or to get a throwaway database that can be dropped wholesale
+# while iterating on the seed generator.
+#
+# Defaults to port 5433 because the host service already holds 5432, so both can run
+# side by side without a conflict.
 services:
   db:
     image: postgres:16-alpine
@@ -11,7 +15,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-people}
       POSTGRES_DB: ${POSTGRES_DB:-people_analytics}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

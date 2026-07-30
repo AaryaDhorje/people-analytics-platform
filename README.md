@@ -24,10 +24,14 @@ See `docs/BUILD_PLAN.md` for the full plan and `docs/ARCHITECTURE.md` for curren
 
 ## Local setup
 
+Local development uses the **PostgreSQL 18 service installed on the host**. Neon is used
+only for the deployed backend. `docker-compose.yml` remains as an optional fallback for a
+machine with no Postgres installed.
+
 ```bash
-# 1. Database
-cp .env.example .env
-docker compose up -d db
+# 1. Database — create it once, then put your password in backend/.env
+"C:\Program Files\PostgreSQL\18\bin\createdb.exe" -U postgres people_analytics
+cp .env.example backend/.env    # then edit DATABASE_URL
 
 # 2. Backend  (http://localhost:8000/docs)
 cd backend && py -3.11 -m venv .venv && .venv/Scripts/python -m pip install -e ".[dev]"
