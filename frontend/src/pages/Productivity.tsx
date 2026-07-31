@@ -243,7 +243,9 @@ function RevenueTrend() {
 
 // --- Utilization heatmap ----------------------------------------------------
 
-const WEEKS_SHOWN = 26
+/** A full year. 26 weeks left half the card empty, and a year is the unit anyone reading
+ *  a utilization chart already thinks in. */
+const WEEKS_SHOWN = 52
 
 function utilizationStep(rate: number | null): { bg: string; fg: string } {
   if (rate == null) return { bg: 'var(--color-ink-50)', fg: 'var(--color-ink-500)' }
@@ -344,9 +346,13 @@ function UtilizationHeatmap() {
                           const step = utilizationStep(value)
                           return (
                             <td key={week} className="p-[1px]">
+                              {/* The hairline ring is load-bearing. The lightest band and
+                                  the no-data fill are both near-white, so without a
+                                  boundary those cells read as holes in the grid rather
+                                  than as low utilization. */}
                               <span
                                 title={`${DEPARTMENTS[id]} · week of ${week} · ${formatRate(value)}`}
-                                className="block h-6 w-4 rounded-[2px]"
+                                className="block h-6 w-4 rounded-[2px] ring-1 ring-inset ring-ink-200/70"
                                 style={{ backgroundColor: step.bg }}
                               />
                             </td>
@@ -357,11 +363,19 @@ function UtilizationHeatmap() {
                     <tr>
                       <td />
                       {weeks.map((week, index) => (
-                        <td key={week} className="pt-1 text-center">
-                          {/* Label every fourth column, so the axis reads without the
-                              labels colliding at 4px cell width. */}
-                          {index % 4 === 0 && (
-                            <span className="font-sans text-[9px] whitespace-nowrap text-ink-500">
+                        // `relative` + an absolutely positioned label is the point. A label
+                        // in normal flow is ~30px wide against an 18px cell, and a table
+                        // column sizes to its widest member — so every labelled column grew,
+                        // and the extra width showed up as a white stripe running down the
+                        // whole heatmap once every N columns. Taking the label out of flow
+                        // keeps every column exactly one cell wide.
+                        <td key={week} className="relative h-4 p-0 align-top">
+                          {index % 6 === 0 && (
+                            <span
+                              className={`absolute top-1 font-sans text-[9px] whitespace-nowrap text-ink-500 ${
+                                index === 0 ? 'left-0' : 'left-1/2 -translate-x-1/2'
+                              }`}
+                            >
                               {week.slice(5, 10)}
                             </span>
                           )}
@@ -656,7 +670,14 @@ function SpanOfControl() {
                         ) : null
                       }
                     />
-                    <Bar dataKey="span" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                    {/* Only two levels hold reports. Without a cap, Recharts divides the
+                        full width between them and draws two 300px slabs. */}
+                    <Bar
+                      dataKey="span"
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={72}
+                      isAnimationActive={false}
+                    >
                       {rows.map((row) => (
                         <Cell
                           key={row.level}

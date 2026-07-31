@@ -95,11 +95,15 @@ export function DataTable<T>({
   rows,
   rowKey,
   emptyMessage = 'No rows for this slice.',
+  stickyHeader = false,
 }: {
   columns: { key: string; header: string; align?: 'left' | 'right'; render: (row: T) => ReactNode }[]
   rows: T[]
   rowKey: (row: T) => string
   emptyMessage?: string
+  /** For tables inside a scroll container — without it the header scrolls away and the
+   *  remaining rows lose their labels. */
+  stickyHeader?: boolean
 }) {
   if (rows.length === 0) {
     return <p className="py-6 text-center font-sans text-sm text-ink-500">{emptyMessage}</p>
@@ -107,7 +111,7 @@ export function DataTable<T>({
 
   return (
     <table className="w-full border-collapse">
-      <thead>
+      <thead className={stickyHeader ? 'sticky top-0 z-10 bg-white' : undefined}>
         <tr className="border-b border-ink-200">
           {columns.map((column) => (
             <th

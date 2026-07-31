@@ -67,6 +67,23 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   )
 }
 
+/** True for the `{ data, meta }` shape every metric endpoint returns.
+ *
+ * `Async` is handed the whole envelope, not the payload, so the emptiness test has to
+ * look one level in. Testing the envelope itself always failed — an envelope is an
+ * object, never an array — which silently disabled every `empty` prop in the app. The
+ * only visible symptom was a card that rendered its header and then nothing, which is
+ * why this survived a green build and was caught by looking at the page.
+ */
+function unwrap(value: unknown): unknown {
+  return value !== null &&
+    typeof value === 'object' &&
+    'data' in value &&
+    'meta' in value
+    ? (value as { data: unknown }).data
+    : value
+}
+
 /** The four states in one place, so no page can forget one.
  *
  * `isFetching` dims a stale render rather than replacing it with a skeleton, which is
@@ -94,7 +111,8 @@ export function Async<T>({
   if (query.isError) return <ErrorState error={query.error} onRetry={() => query.refetch()} />
   if (query.data === undefined) return <EmptyState title={empty?.title ?? 'No data'} />
 
-  const isEmptyArray = Array.isArray(query.data) && query.data.length === 0
+  const payload = unwrap(query.data)
+  const isEmptyArray = Array.isArray(payload) && payload.length === 0
   if (isEmptyArray && empty) return <EmptyState title={empty.title} hint={empty.hint} />
 
   return <div className={query.isFetching ? 'is-refetching' : undefined}>{children(query.data)}</div>

@@ -41,7 +41,6 @@ import {
   formatCount,
   formatCurrency,
   formatDays,
-  formatDecimal,
   formatMonth,
   formatRate,
 } from '@/lib/format'
@@ -397,10 +396,33 @@ function SourceEffectiveness() {
 
   const dearest = [...points].sort((a, b) => b.cost_per_hire - a.cost_per_hire)[0]
 
+  // Agency sits at roughly three times any other channel's cost, which squeezes the
+  // remaining five into the left third of the plot — where a label above each bubble
+  // overlaps its neighbour. Labels therefore sit beside the bubble, on the side with room.
+  // A label runs to the right unless something is in the way: either the plot edge, or a
+  // near neighbour up and to the right whose bubble the text would cross.
+  const maxCost = Math.max(...points.map((p) => p.cost_per_hire), 1)
+  const labelSide = new Map(
+    points.map((point) => {
+      const crowdedRight = points.some(
+        (other) =>
+          other.name !== point.name &&
+          other.cost_per_hire > point.cost_per_hire &&
+          other.cost_per_hire - point.cost_per_hire < 0.2 * maxCost &&
+          Math.abs(other.retention - point.retention) < 0.05,
+      )
+      const nearRightEdge = point.cost_per_hire / maxCost > 0.66
+      return [point.name, nearRightEdge || crowdedRight ? 'left' : 'right'] as const
+    }),
+  )
+
   return (
     <ChartCard
       title="Source effectiveness"
-      subtitle="Cost per hire against 12-month retention. Bubble size is hires."
+      // The y-axis carried a rotated 'retention ↑' label that Recharts clipped to
+      // "retention 1" inside the 48px axis gutter. The axis is named here instead, where
+      // it cannot be cut off.
+      subtitle="Cost per hire (across) against 12-month retention (up). Bubble size is hires."
       stat={
         dearest ? (
           <ChartStat
@@ -411,9 +433,10 @@ function SourceEffectiveness() {
       }
       footnote="Every point is one colour and carries its own label. Identity here comes from the label, not from hue: a scatter compares all pairs of series at once, and six hues cannot stay distinguishable under colour-vision deficiency at that grain. Upper-left is cheap and sticky; lower-right is expensive and churning."
       chart={
-        <ChartBody height={320}>
+        <ChartBody height={380}>
           <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 16, right: 32, bottom: 24, left: 8 }}>
+            {/* Right margin holds the widest side label; left holds Agency's. */}
+            <ScatterChart margin={{ top: 16, right: 72, bottom: 24, left: 8 }}>
               <CartesianGrid {...GRID} vertical />
               <XAxis
                 type="number"
@@ -440,12 +463,6 @@ function SourceEffectiveness() {
                 width={48}
                 domain={[0.5, 1]}
                 tickFormatter={(value: number) => `${Math.round(value * 100)}%`}
-                label={{
-                  value: 'retention ↑',
-                  angle: -90,
-                  position: 'insideLeft',
-                  style: { fill: 'var(--color-ink-500)', fontSize: 11 },
-                }}
               />
               {/* Bubble area encodes hires. Minimum size keeps a small channel clickable. */}
               <ZAxis type="number" dataKey="hires" range={[120, 900]} name="Hires" />
@@ -476,9 +493,23 @@ function SourceEffectiveness() {
               >
                 <LabelList
                   dataKey="name"
-                  position="top"
-                  offset={10}
-                  style={{ fill: 'var(--color-ink-700)', fontSize: 11 }}
+                  content={(props) => {
+                    const { x, y, value } = props as { x: number; y: number; value: string }
+                    const side = labelSide.get(value) ?? 'right'
+                    // The bubble radius varies with hires; 18px clears the largest of them.
+                    const dx = side === 'right' ? 18 : -18
+                    return (
+                      <text
+                        x={x + dx}
+                        y={y}
+                        dy={4}
+                        textAnchor={side === 'right' ? 'start' : 'end'}
+                        style={{ fill: 'var(--color-ink-700)', fontSize: 11 }}
+                      >
+                        {value}
+                      </text>
+                    )
+                  }}
                 />
               </Scatter>
             </ScatterChart>
@@ -582,7 +613,9 @@ function RequisitionAgingTable() {
                   header: 'Oldest',
                   align: 'right',
                   render: (row) =>
-                    row.max_age_days == null ? '—' : `${formatDecimal(row.max_age_days)}d`,
+                    // A whole number of days. `formatDecimal` rendered "114.0d", which
+                    // implies a precision the column does not have.
+                    row.max_age_days == null ? '—' : `${formatCount(row.max_age_days)}d`,
                 },
               ]}
             />

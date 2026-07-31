@@ -518,48 +518,71 @@ function ManagerHeatmap() {
             }
             footnote="The colour scale uses fixed bands, not quantiles of the current filter — so a manager's shade means the same thing whichever slice you are looking at. Rate alone favours small teams; read it beside the report count."
             chart={
-              <div className="max-h-[26rem] overflow-y-auto">
-                <DataTable
-                  rows={rows.slice(0, 40)}
-                  rowKey={(row) => `${row.period}-${row.manager_id}`}
-                  columns={[
-                    { key: 'mgr', header: 'Manager', render: (row) => row.manager_id },
-                    {
-                      key: 'dept',
-                      header: 'Department',
-                      render: (row) => DEPARTMENTS[row.department_id ?? 0] ?? '—',
-                    },
-                    { key: 'q', header: 'Quarter', render: (row) => formatQuarter(row.period) },
-                    {
-                      key: 'reports',
-                      header: 'Avg team',
-                      align: 'right',
-                      render: (row) => formatDecimal(row.avg_reports),
-                    },
-                    {
-                      key: 'exits',
-                      header: 'Exits',
-                      align: 'right',
-                      render: (row) => formatCount(row.terminations),
-                    },
-                    {
-                      key: 'rate',
-                      header: 'Annualized',
-                      align: 'right',
-                      render: (row) => {
-                        const step = heatStep(row.annualized_rate)
-                        return (
-                          <span
-                            className="tnum inline-block min-w-[4.5rem] rounded px-2 py-0.5 text-right font-medium"
-                            style={{ backgroundColor: step.bg, color: step.fg }}
-                          >
-                            {formatRate(row.annualized_rate)}
-                          </span>
-                        )
+              // A bare `overflow-y-auto` clips the final row through its middle, which in a
+              // screenshot or a recording reads as a rendering fault rather than as "there
+              // is more below". Sticky header, an explicit count, and a fade at the cut make
+              // the boundary intentional.
+              <div>
+                <div className="relative">
+                  <div className="max-h-[26rem] overflow-y-auto">
+                  <DataTable
+                    stickyHeader
+                    rows={rows.slice(0, 40)}
+                    rowKey={(row) => `${row.period}-${row.manager_id}`}
+                    columns={[
+                      { key: 'mgr', header: 'Manager', render: (row) => row.manager_id },
+                      {
+                        key: 'dept',
+                        header: 'Department',
+                        render: (row) => DEPARTMENTS[row.department_id ?? 0] ?? '—',
                       },
-                    },
-                  ]}
-                />
+                      { key: 'q', header: 'Quarter', render: (row) => formatQuarter(row.period) },
+                      {
+                        key: 'reports',
+                        header: 'Avg team',
+                        align: 'right',
+                        render: (row) => formatDecimal(row.avg_reports),
+                      },
+                      {
+                        key: 'exits',
+                        header: 'Exits',
+                        align: 'right',
+                        render: (row) => formatCount(row.terminations),
+                      },
+                      {
+                        key: 'rate',
+                        header: 'Annualized',
+                        align: 'right',
+                        render: (row) => {
+                          const step = heatStep(row.annualized_rate)
+                          return (
+                            <span
+                              className="tnum inline-block min-w-[4.5rem] rounded px-2 py-0.5 text-right font-medium"
+                              style={{ backgroundColor: step.bg, color: step.fg }}
+                            >
+                              {formatRate(row.annualized_rate)}
+                            </span>
+                          )
+                        },
+                      },
+                    ]}
+                    />
+                  </div>
+
+                  {/* The fade belongs to the scroll box, not to the card. Hung on the outer
+                      wrapper it covered the caption below instead of the cut edge above. */}
+                  {rows.length > 40 && (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent"
+                    />
+                  )}
+                </div>
+
+                <p className="mt-2 font-sans text-xs text-ink-500">
+                  Showing the {Math.min(40, rows.length)} highest of {formatCount(rows.length)}{' '}
+                  manager-quarters. Switch to Table for all of them.
+                </p>
               </div>
             }
             table={
