@@ -166,20 +166,26 @@ def test_bottom_engagement_quartile_leaves_more_than_the_top(db: Session) -> Non
 
     Bottom quartile is E-007 and E-004; top is D-900 and M-901.
 
-    Attrition in the six months after 2024-07-01 (so July to December):
+    Survey 1 **closes 2024-09-30**, so the follow-up window is the quarter beginning the
+    month after: October, November, December 2024. The window is anchored to the close
+    date, not to the survey's quarter_start of 2024-07-01 — anchoring to the quarter would
+    start it in July, three months before anyone answered, and count exposure that
+    predates the response it is meant to be a consequence of.
+
         E-004 left 2024-11-15 -> inside the window
         E-007 left 2025-03-31 -> outside it
 
-        bottom  headcount-months = 4.5 (E-004, active until mid-November) + 6.0 (E-007)
-                = 10.5, with 1 termination -> 1 * 12 / 10.5 = 114.3%
-        top     12.0 headcount-months, 0 terminations -> 0%
+        bottom  headcount-months = 1.5 (E-004: full October, half November)
+                                 + 3.0 (E-007) = 4.5, with 1 termination
+                                 -> 1 * 12 / 4.5 = 266.7%
+        top     6.0 headcount-months, 0 terminations -> 0%
     """
     rows = {row["quartile"]: row for row in engagement.engagement_attrition_link(db, WAVE_1)}
 
     bottom, top = rows[1], rows[4]
     assert bottom["terminations"] == 1
-    assert bottom["headcount_months"] == pytest.approx(10.5)
-    assert bottom["annualized_rate"] == pytest.approx(12 / 10.5)
+    assert bottom["headcount_months"] == pytest.approx(4.5)
+    assert bottom["annualized_rate"] == pytest.approx(12 / 4.5)
 
     assert top["terminations"] == 0
     assert top["annualized_rate"] == pytest.approx(0.0)

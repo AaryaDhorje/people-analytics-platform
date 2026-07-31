@@ -416,7 +416,11 @@ def check_reorg(session: Session) -> dict[str, float | None]:
         session,
         """
         WITH per_response AS (
+          -- Anchored to when the survey CLOSED, not to its quarter start. Surveys open in
+          -- the third month of their quarter, so a quarter-anchored window would begin
+          -- three months before anyone answered.
           SELECT r.employee_id, sv.quarter_start,
+                 (date_trunc('month', sv.closes_on) + INTERVAL '1 month')::date AS follow_start,
                  (r.driver_manager + r.driver_growth + r.driver_recognition
                   + r.driver_workload + r.driver_belonging) / 5.0 AS raw_index
           FROM fact_survey_response r
@@ -433,8 +437,8 @@ def check_reorg(session: Session) -> dict[str, float | None]:
           FROM banded b
           JOIN fact_monthly_headcount_snapshot s
             ON s.employee_id = b.employee_id
-           AND s.month_start >= b.quarter_start
-           AND s.month_start < (b.quarter_start + INTERVAL '6 months')
+           AND s.month_start >= b.follow_start
+           AND s.month_start < (b.follow_start + INTERVAL '3 months')
           GROUP BY b.q
         )
         SELECT

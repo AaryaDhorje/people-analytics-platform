@@ -11,7 +11,17 @@ Column types matter for filtering: a `Date` column compares correctly against a
 through as a string and quietly compare text.
 """
 
-from sqlalchemy import Column, Date, Integer, MetaData, Numeric, SmallInteger, String, Table
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    Integer,
+    MetaData,
+    Numeric,
+    SmallInteger,
+    String,
+    Table,
+)
 
 #: Separate from Base.metadata. See the module docstring.
 VIEW_METADATA = MetaData()
@@ -74,24 +84,25 @@ v_manager_attrition_quarterly = Table(
     Column("location_id", SmallInteger),
     Column("job_level_id", SmallInteger),
     Column("reports", Integer),
+    Column("months_observed", Integer),
+    Column("avg_reports", Numeric),
     Column("terminations", Integer),
     Column("voluntary_terminations", Integer),
     Column("headcount_months", Numeric),
 )
 
 
-v_mobility_yearly = Table(
-    "v_mobility_yearly",
+v_mobility_monthly = Table(
+    "v_mobility_monthly",
     VIEW_METADATA,
-    # `year` is an integer, not a date. apply_filters() must be told so via
-    # period_kind="year", or a date_from would be compared against 2025 as text.
+    Column("month_start", Date),
     Column("year", Integer),
+    Column("quarter_start", Date),
     Column("department_id", SmallInteger),
     Column("promotions", Integer),
     Column("lateral_transfers", Integer),
     Column("mobility_events", Integer),
     Column("avg_headcount", Numeric),
-    Column("months_observed", Integer),
 )
 
 
@@ -339,6 +350,30 @@ v_goal_attainment = Table(
     Column("completed_goals", Integer),
     Column("missed_goals", Integer),
     Column("at_risk_goals", Integer),
+)
+
+
+v_flight_risk_inputs = Table(
+    "v_flight_risk_inputs",
+    VIEW_METADATA,
+    Column("employee_id", String(12)),
+    Column("as_of_month", Date),
+    Column("department_id", SmallInteger),
+    Column("location_id", SmallInteger),
+    Column("job_level_id", SmallInteger),
+    Column("manager_id", String(12)),
+    Column("tenure_months", Integer),
+    Column("months_since_promotion", Integer),
+    Column("ever_promoted", Boolean),
+    Column("employee_raw_index", Numeric),
+    Column("department_raw_index", Numeric),
+    Column("manager_terminations", Integer),
+    Column("manager_headcount_months", Numeric),
+    Column("company_terminations", Integer),
+    Column("company_headcount_months", Numeric),
+    Column("comp_amount", Numeric),
+    Column("comp_band_min", Numeric),
+    Column("comp_band_max", Numeric),
 )
 
 

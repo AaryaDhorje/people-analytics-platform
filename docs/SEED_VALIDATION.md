@@ -68,7 +68,7 @@ A reorg in Jul 2025 moves 22% of staff between teams, drops Belonging and Growth
 | Belonging drop vs pre-reorg surveys | 15.00 ± 4.00 pts | 14.98 | ok |
 | Growth drop vs pre-reorg surveys | 15.00 ± 4.00 pts | 15.79 | ok |
 | Attrition rise 2 quarters after the reorg | >= 1.00 x | 2.22 | ok |
-| Bottom engagement quartile attrition vs top quartile | >= 1.50 x | 7.95 | ok |
+| Bottom engagement quartile attrition vs top quartile | >= 1.50 x | 8.00 | ok |
 
 *Demo beat:* Proves the engagement-to-attrition lag on the chart.
 

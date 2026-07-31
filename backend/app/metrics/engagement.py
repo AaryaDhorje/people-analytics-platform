@@ -243,7 +243,10 @@ def engagement_attrition_link(db: Session, filters: MetricFilters) -> list[dict[
     """
     stmt = select(
         v_engagement_attrition.c.quartile,
-        func.sum(v_engagement_attrition.c.employees).label("employees"),
+        # Respondent-survey observations, not distinct people: someone who answered four
+        # surveys contributes four. Named honestly because the raw count reads like a
+        # headcount and is roughly 3.4x larger than the real respondent population.
+        func.sum(v_engagement_attrition.c.employees).label("respondent_observations"),
         func.sum(v_engagement_attrition.c.terminations).label("terminations"),
         func.sum(cast(v_engagement_attrition.c.headcount_months, Numeric)).label(
             "headcount_months"
@@ -255,7 +258,7 @@ def engagement_attrition_link(db: Session, filters: MetricFilters) -> list[dict[
     return [
         {
             "quartile": int(row["quartile"]),
-            "employees": int(row["employees"] or 0),
+            "respondent_observations": int(row["respondent_observations"] or 0),
             "terminations": int(row["terminations"] or 0),
             "headcount_months": float(row["headcount_months"] or 0),
             "annualized_rate": _annualized(row["terminations"], row["headcount_months"]),

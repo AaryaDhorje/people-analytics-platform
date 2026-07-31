@@ -19,7 +19,16 @@ WITH team AS (
         date_trunc('quarter', s.month_start)::date AS quarter_start,
         s.manager_id,
 
+        -- Two different populations, and the distinction decides who tops the heatmap.
+        -- `reports` is everyone who passed through the team at any point in the quarter;
+        -- `avg_reports` is the team's average size. The 8-report floor must be applied to
+        -- the average, because a manager with 9 distinct reports across a quarter can have
+        -- averaged 6 -- and three exits from a team of six annualizes to 189%, which is
+        -- exactly the small-team artefact the floor exists to suppress. Applying it to the
+        -- distinct count admitted 161 of 952 manager-quarters whose real span was under 8,
+        -- and put one of them at the top of the chart.
         COUNT(DISTINCT s.employee_id)              AS reports,
+        COUNT(DISTINCT s.month_start)              AS months_observed,
         SUM(s.terminated_in_month::int)            AS terminations,
         SUM(
             CASE
@@ -58,6 +67,10 @@ SELECT
     c.location_id,
     c.job_level_id,
     t.reports,
+    t.months_observed,
+    -- Average team size over the quarter. Safe to divide here: both terms come from the
+    -- same group, and the caller never re-aggregates across managers.
+    t.headcount_months / NULLIF(t.months_observed, 0) AS avg_reports,
     t.terminations,
     t.voluntary_terminations,
     t.headcount_months

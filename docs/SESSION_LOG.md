@@ -209,3 +209,85 @@ post-reorg spike, visible without being pointed at. All six scenarios PASS.
 **Blockers.** None for phase 3. Two notes: company time to fill measures 43.8 days against the
 plan's 38 and passes only at the edge of its ±6 tolerance (Sales' 74 is exact), and
 `ANTHROPIC_API_KEY` is still empty for phase 6.
+
+*The time-to-fill note was withdrawn in phase 3: Engineering measures 38.3 days, exactly the
+plan's figure. The company mean sits higher only because Sales is deliberately slow at 74, so
+43.8 is the arithmetic consequence of the plan's own targets rather than a miss.*
+
+---
+
+## Phase 3 — Metrics layer + tests (H4:30–H7:30 allotted) · the credibility phase
+
+**Prompt strategy.** `/phase 3` in plan mode, with three decisions put to the user rather than
+assumed: how much of a view layer to build, whether to ship all 31 metrics or the documented
+MVP subset, and whether to run the `metric-verifier` subagent. All three took the fuller
+option. The phase then ran as seven checkpoints — foundation, then each domain strictly
+test-first with a stop-and-report between, then the verifier, then flight risk and the API.
+Reporting between domains was not ceremony: the Retention checkpoint surfaced that M-114 ranks
+fourth by attrition rate rather than first, which changed the phase-5 heatmap design.
+
+**This is the phase where a subagent was the right tool, having been the wrong one twice
+before.** Phase 2 declined `data-generator` because it would have started without the schema in
+context. `metric-verifier` is the opposite case: its entire value is *not* inheriting my
+context. It was told to write SQL from `docs/METRICS.md` against base tables only, never the
+views, because the views are part of what was under test — selecting from them would only
+confirm they agree with themselves.
+
+**Accepted.** The division of labour between SQL and Python is the load-bearing decision:
+views pre-aggregate to the finest useful grain and expose numerator and denominator as
+separate columns; Python filters, aggregates and divides. That enforces the average-headcount
+rule once per metric family rather than 31 times. Two thresholds deliberately break the rule
+and live in SQL — overtime's 40-hour line and goal attainment's 1.5 cap — because both apply
+per row and cannot be recovered after aggregation; applying the 40-hour threshold to a summed
+quarter would report 2,300 hours of overtime on a 2,340-hour total. Unsupported filters raise
+`UnsupportedFilterError` → HTTP 400 rather than being ignored, because a silent 200 carrying
+data for a slice nobody requested is the worst available outcome. `tiny_org` runs against a
+separate database built from the *real* view files, so a metric cannot pass its test and be
+wrong in production. Flight risk stayed a transparent five-component weighted score with
+weights summing to 1.0 and an `explain()` that returns one sentence per component.
+
+**Rejected.** The verifier found **four real bugs**, and the most instructive one is about
+method rather than code. `v_engagement_attrition` anchored its follow-up window to the survey's
+*quarter start*, but every survey opens in the third month of its quarter — so the window ran
+from three months before the survey was administered to three months after it closed, and every
+quartile read at roughly half its true rate. The view's own header comment described the correct
+behaviour it failed to implement. Worse, `seed/validate.py`'s "independent" check of the same
+scenario carried the identical bug, because I wrote both. **Phase 2's independent verification
+was not independent of me.** A fresh-context agent caught in one pass what two of my own passes
+had missed. Also rejected: `v_revenue_per_fte` used month-end FTE while its comment claimed
+average, committing the exact substitution CLAUDE.md names as the top risk in the one view whose
+denominator is FTE rather than headcount; `internal_mobility` summed per-year averages across
+years and reported an average headcount of 4,760 for a company of 1,194; the manager-attrition
+floor counted distinct reports rather than average span, admitting 161 manager-quarters whose
+real team was under 8 and putting a three-exits-from-six artefact at the top of the heatmap;
+and `tenure_distribution` summed person-months, so the bands totalled 42,997 for a 1,200-person
+company.
+
+Two rejections were of *proposed* fixes rather than of code. The verifier's remedy for the
+engagement window shifted it six months forward, which fixed the anchor but left the
+double-counting it had itself identified — six-month windows on quarterly surveys put every
+employee-month under two surveys. A three-month window matching the survey cadence fixes both.
+And **the flight-risk weights were left alone** even though M-114's reports rank 20th–149th of
+1,200 rather than in the top ten. Tuning a risk model so a planted scenario ranks higher is how
+numbers stop being trustworthy; the honest claim — all eight reports elevated against a 44%
+base rate, roughly 1-in-700 by chance — is stronger than the manufactured one.
+
+Five of my own bugs were found by running rather than reading: `CREATE OR REPLACE VIEW` cannot
+change a column list; PostgreSQL refuses to cast boolean to numeric; `GROUP BY` on an output
+alias that shadows an input column silently resolves to the input column; a dropped `LEFT JOIN`;
+and a response model requiring a `period` field the by-department shape does not have.
+
+**A gap this phase exposed and did not close.** That last bug returned HTTP 500 from a live
+endpoint, and **no test caught it** — the 170 tests call metric functions directly and never
+cross the Pydantic boundary. The suite verifies the arithmetic thoroughly and the serialization
+not at all. Phase 4 should add route-level tests through `TestClient`.
+
+**Numbers.** 22 files (9 new, 12 modified, 1 renamed). 170 tests passing, up from 137 — 71
+metric tests with hand-computed arithmetic, 33 flight-risk tests of which 28 need no database.
+**41 endpoints live**, 40 returning non-empty data against the 216k-row warehouse; the one
+empty is `/api/engagement/themes`, correct until phase 6 fills `fact_comment_theme`. 21 views,
+31 of 31 metrics implemented.
+
+**Blockers.** None for phase 4. Three open items: the route-level test gap above;
+`ANTHROPIC_API_KEY` still empty; and **no git remote exists** — Render and Vercel both deploy
+from one, so phase 7 cannot start until a repository is pushed.

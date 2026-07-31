@@ -1,6 +1,6 @@
 # Architecture
 
-Updated at the end of each phase. **Current state: phase 2 (synthetic data) complete.**
+Updated at the end of each phase. **Current state: phase 3 (metrics layer) complete.**
 
 ## System shape
 
@@ -508,9 +508,81 @@ with `DuplicateObject`. The initial revision therefore ends `downgrade()` with a
 regenerates this database repeatedly, so a one-way migration is a live obstacle, not a
 hypothetical one.
 
+## The metrics layer (`sql/views/` + `app/metrics/`)
+
+**Views pre-aggregate; Python filters and divides.** A view cannot take a parameter, so each is
+built at the finest grain any of its metrics needs and exposes **numerator and denominator as
+separate columns**. The caller applies filters, aggregates, then divides. That enforces the
+average-headcount rule once per metric family rather than 31 times — `v_headcount_monthly`
+emits `avg_headcount`, and nothing downstream can reach for end-of-period headcount by
+accident.
+
+**Two thresholds deliberately live in SQL**, against that rule, because they apply per row and
+cannot be recovered after aggregation:
+
+| Threshold | Where | Why it cannot move to Python |
+|---|---|---|
+| Overtime's 40-hour line | `40_v_timesheet_weekly.sql` | 30 hours one week and 50 the next is 10 hours of overtime; the 80-hour fortnight shows none |
+| Goal attainment's 1.5 cap | `43_v_goal_attainment.sql` | Capping a team average is a different calculation from capping each goal and averaging |
+
+**Three grain rules learned the hard way**, each from a bug:
+
+- **A threshold does not survive aggregation the way a sum does.** `v_manager_attrition_quarterly`
+  is grained by `(quarter, manager)` and nothing finer, because splitting a manager across
+  department and location rows made every slice fail the 8-report floor. The floor itself
+  applies to *average* team size, not to the count of people who passed through.
+- **A pre-divided average can only be re-aggregated along dimensions it was not divided by.**
+  `v_mobility_monthly` and `v_training_monthly` are monthly rather than yearly for this reason;
+  summing per-year averages across years reported an average headcount of 4,760 for a company
+  of 1,194.
+- **A distribution is a snapshot, not an accumulation.** Tenure distribution is point-in-time at
+  the latest month in range; summing across months produced person-months.
+
+**One filter implementation.** `MetricFilters` is built by a single FastAPI dependency and
+applied by `apply_filters(stmt, view, filters, period_column=...)`. The period column is passed
+explicitly because views name it differently (`month_start`, `quarter_start`, `week_start`,
+`hire_quarter`). A filter a view cannot honour raises `UnsupportedFilterError` → **HTTP 400**;
+it is never silently dropped, because a 200 carrying data for a slice nobody asked for is
+undetectable from the client.
+
+**Flight risk is a transparent weighted score, not a model.** Five components — tenure band,
+months since last promotion, engagement delta against the department mean, the manager's
+trailing-12-month attrition, and position in the pay band — with weights summing to exactly
+1.0. Each component's raw score, weight and contribution is stored in JSONB, and `explain()`
+renders one sentence per component ordered by contribution. `/api/flight-risk/weights` exposes
+the weighting over HTTP so the score is auditable from the API rather than only from source.
+
+## Verification: two independent guards
+
+1. **`tests/fixtures/tiny_org.py`** — a 12-employee, 18-month organization small enough that
+   every metric is a few-term sum, with the arithmetic written into each test as a comment. It
+   runs against a separate `people_analytics_test` database built from `Base.metadata.create_all`
+   plus **the real view files**, so a metric cannot pass its test and be wrong in production.
+2. **The `metric-verifier` subagent** — a fresh-context agent that recomputes every metric in
+   raw SQL from `docs/METRICS.md` against base tables only, never the views.
+
+The second guard exists because the first cannot catch a shared misreading. It found four real
+bugs, including one where a view's own header comment described behaviour the view did not
+implement *and* `seed/validate.py`'s supposedly independent check of the same scenario carried
+the identical error — because the same author wrote both.
+
+## What exists now (phase 3)
+
+- **21 views** and **31 of 31 metrics**, each with a hand-computed test.
+- **41 endpoints** across five routers, all using the shared filter dependency and the
+  `{data, meta}` envelope. 40 return non-empty data; `/api/engagement/themes` is correctly
+  empty until phase 6 populates `fact_comment_theme`.
+- **170 tests passing.** 33 flight-risk tests, 28 of which need no database because the scoring
+  functions are pure.
+- 1,200 employees scored and persisted: 10 low, 663 moderate, 515 elevated, 12 high.
+
+### Known gap
+
+Tests call metric functions directly and never cross the Pydantic boundary, so a response-model
+mismatch reached a live endpoint as an HTTP 500 with a green suite. Phase 4 should add
+route-level tests through `TestClient`.
+
 ## Next
 
-Phase 3 builds the metrics layer test-first: a 12-employee hand-computed fixture
-(`tests/fixtures/tiny_org.py`), then each of the four domains in order — retention,
-acquisition, engagement, productivity — followed by an independent raw-SQL recomputation of
-every metric by the `metric-verifier` subagent.
+Phase 4 completes the API surface: demo bearer-token auth, CORS for the Vercel origin, and
+`/api/overview` returning the eight headline KPIs in a single call.

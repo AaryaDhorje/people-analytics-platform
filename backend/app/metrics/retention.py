@@ -32,7 +32,7 @@ from app.metrics.tables import (
     v_cohort_survival,
     v_headcount_monthly,
     v_manager_attrition_quarterly,
-    v_mobility_yearly,
+    v_mobility_monthly,
     v_regretted_exits,
     v_tenure_band_monthly,
 )
@@ -190,17 +190,29 @@ def regretted_attrition(db: Session, filters: MetricFilters) -> dict[str, Any]:
 
 
 def tenure_distribution(db: Session, filters: MetricFilters) -> list[dict[str, Any]]:
-    """Headcount per tenure band, summed across the filtered months.
+    """Headcount per tenure band, **point-in-time** at the latest month in range.
 
     Bands are fixed in docs/METRICS.md: <6m, 6-12m, 1-2y, 2-5y, 5y+. Results are ordered
     by `band_order` from the view, because alphabetical ordering puts "1-2y" before
     "6-12m" and makes a histogram unreadable.
+
+    A distribution is a snapshot, not an accumulation. Summing headcount across every
+    month in range produced person-months: the bands totalled 42,997 for a 1,200-person
+    company, and a bar reading "15,722 employees with 5y+ tenure" invites exactly the
+    question you do not want on camera. Collapsing to the last month in range gives a
+    distribution that sums to actual headcount.
     """
+    latest_month = select(func.max(v_tenure_band_monthly.c.month_start))
+    latest_month = apply_filters(
+        latest_month, v_tenure_band_monthly, filters, period_column="month_start"
+    ).scalar_subquery()
+
     stmt = select(
         v_tenure_band_monthly.c.tenure_band,
         v_tenure_band_monthly.c.band_order,
         func.sum(v_tenure_band_monthly.c.headcount).label("headcount"),
-    ).group_by(v_tenure_band_monthly.c.tenure_band, v_tenure_band_monthly.c.band_order)
+    ).where(v_tenure_band_monthly.c.month_start == latest_month)
+    stmt = stmt.group_by(v_tenure_band_monthly.c.tenure_band, v_tenure_band_monthly.c.band_order)
     stmt = apply_filters(stmt, v_tenure_band_monthly, filters, period_column="month_start")
     stmt = stmt.order_by(v_tenure_band_monthly.c.band_order)
 
@@ -290,16 +302,24 @@ def attrition_by_manager(
     attrition rate over four people is noise dressed as signal — one departure reads as
     25%. `min_reports` is a parameter only so tests can exercise the arithmetic on a
     12-person fixture where nobody clears the real floor.
+
+    The floor is applied to **average** team size, not to the count of distinct people who
+    passed through the team. A manager with 9 distinct reports across a quarter can have
+    averaged 6, and three exits from a team of six annualizes to 189% — precisely the
+    small-team artefact the floor exists to suppress. Filtering on the distinct count
+    admitted 161 of 952 manager-quarters whose real span was under 8, and put one of them
+    at the top of the heatmap.
     """
     stmt = select(
         v_manager_attrition_quarterly.c.quarter_start.label("period"),
         v_manager_attrition_quarterly.c.manager_id,
         v_manager_attrition_quarterly.c.department_id,
         v_manager_attrition_quarterly.c.reports,
+        v_manager_attrition_quarterly.c.avg_reports,
         v_manager_attrition_quarterly.c.terminations,
         v_manager_attrition_quarterly.c.voluntary_terminations,
         v_manager_attrition_quarterly.c.headcount_months,
-    ).where(v_manager_attrition_quarterly.c.reports >= min_reports)
+    ).where(v_manager_attrition_quarterly.c.avg_reports >= min_reports)
     stmt = apply_filters(
         stmt, v_manager_attrition_quarterly, filters, period_column="quarter_start"
     )
@@ -315,6 +335,7 @@ def attrition_by_manager(
             "manager_id": row["manager_id"],
             "department_id": row["department_id"],
             "reports": int(row["reports"] or 0),
+            "avg_reports": _num(row["avg_reports"]),
             "terminations": int(row["terminations"] or 0),
             "voluntary_terminations": int(row["voluntary_terminations"] or 0),
             "headcount_months": _num(row["headcount_months"]),
@@ -333,54 +354,69 @@ def internal_mobility(db: Session, filters: MetricFilters) -> dict[str, Any]:
     docs/METRICS.md counts exactly those two event types. Hires and terminations are
     movement but not mobility; including them would multiply the rate several-fold.
 
-    The view is grained by (year, department) and carries no period date, so filtering is
-    by calendar year — `period_kind="year"` converts a date bound into a year bound.
+    Average headcount is `sum of monthly headcount / months in the requested period`, and
+    the month count is computed here rather than read from the view. **A pre-divided
+    average can only be re-aggregated along the dimensions it was not divided by.** An
+    earlier version summed a per-year average across years, which is how the whole-window
+    call came to report an average headcount of 4,760 for a company of 1,194 — and to emit
+    that number through the API as a field the frontend would have rendered.
+
+    The rate is annualized so a partial-year window stays comparable with a full one.
     """
     stmt = select(
-        func.sum(v_mobility_yearly.c.promotions).label("promotions"),
-        func.sum(v_mobility_yearly.c.lateral_transfers).label("lateral_transfers"),
-        func.sum(cast(v_mobility_yearly.c.avg_headcount, Numeric)).label("avg_headcount"),
+        func.sum(v_mobility_monthly.c.promotions).label("promotions"),
+        func.sum(v_mobility_monthly.c.lateral_transfers).label("lateral_transfers"),
+        func.sum(cast(v_mobility_monthly.c.avg_headcount, Numeric)).label("headcount_months"),
+        func.count(func.distinct(v_mobility_monthly.c.month_start)).label("months"),
     )
-    stmt = apply_filters(stmt, v_mobility_yearly, filters, period_column="year", period_kind="year")
+    stmt = apply_filters(stmt, v_mobility_monthly, filters, period_column="month_start")
     row = db.execute(stmt).mappings().one()
 
+    return _mobility_result(row)
+
+
+def _mobility_result(row: Any, *, year: int | None = None) -> dict[str, Any]:
+    """Shared shaping for the whole-window and per-year mobility results."""
     promotions = int(row["promotions"] or 0)
     transfers = int(row["lateral_transfers"] or 0)
     events = promotions + transfers
-    return {
+    months = int(row["months"] or 0)
+    avg_headcount = _ratio(row["headcount_months"], months)
+
+    result: dict[str, Any] = {
         "promotions": promotions,
         "lateral_transfers": transfers,
         "mobility_events": events,
-        "avg_headcount": _num(row["avg_headcount"]),
-        "mobility_rate": _ratio(events, row["avg_headcount"]),
+        "headcount_months": _num(row["headcount_months"]),
+        "months": months,
+        "avg_headcount": avg_headcount,
+        "mobility_rate": (
+            None if not avg_headcount or not months else events * (12.0 / months) / avg_headcount
+        ),
     }
+    if year is not None:
+        return {"year": year, **result}
+    return result
 
 
 def mobility_by_year(db: Session, filters: MetricFilters) -> list[dict[str, Any]]:
-    """Internal mobility broken out per year, for the trend chart."""
-    stmt = select(
-        v_mobility_yearly.c.year,
-        func.sum(v_mobility_yearly.c.promotions).label("promotions"),
-        func.sum(v_mobility_yearly.c.lateral_transfers).label("lateral_transfers"),
-        func.sum(cast(v_mobility_yearly.c.avg_headcount, Numeric)).label("avg_headcount"),
-    ).group_by(v_mobility_yearly.c.year)
-    stmt = apply_filters(stmt, v_mobility_yearly, filters, period_column="year", period_kind="year")
-    stmt = stmt.order_by(v_mobility_yearly.c.year)
+    """Internal mobility broken out per year, for the trend chart.
 
-    rows = db.execute(stmt).mappings().all()
+    Months are counted within each year, so a partial year at either end of the window
+    annualizes correctly instead of reading as a slow year.
+    """
+    stmt = select(
+        v_mobility_monthly.c.year,
+        func.sum(v_mobility_monthly.c.promotions).label("promotions"),
+        func.sum(v_mobility_monthly.c.lateral_transfers).label("lateral_transfers"),
+        func.sum(cast(v_mobility_monthly.c.avg_headcount, Numeric)).label("headcount_months"),
+        func.count(func.distinct(v_mobility_monthly.c.month_start)).label("months"),
+    ).group_by(v_mobility_monthly.c.year)
+    stmt = apply_filters(stmt, v_mobility_monthly, filters, period_column="month_start")
+    stmt = stmt.order_by(v_mobility_monthly.c.year)
+
     return [
-        {
-            "year": int(row["year"]),
-            "promotions": int(row["promotions"] or 0),
-            "lateral_transfers": int(row["lateral_transfers"] or 0),
-            "mobility_events": int(row["promotions"] or 0) + int(row["lateral_transfers"] or 0),
-            "avg_headcount": _num(row["avg_headcount"]),
-            "mobility_rate": _ratio(
-                int(row["promotions"] or 0) + int(row["lateral_transfers"] or 0),
-                row["avg_headcount"],
-            ),
-        }
-        for row in rows
+        _mobility_result(row, year=int(row["year"])) for row in db.execute(stmt).mappings().all()
     ]
 
 

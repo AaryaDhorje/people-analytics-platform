@@ -14,7 +14,20 @@ WITH quarterly_fte AS (
     SELECT
         date_trunc('quarter', s.month_start)::date AS quarter_start,
         s.department_id,
-        SUM(s.fte) FILTER (WHERE s.active_at_month_end) AS fte_months,
+
+        -- **Average** FTE across each month, not month-end FTE. The first version of this
+        -- view filtered on `active_at_month_end` alone and never read
+        -- `active_at_month_start` -- the exact average-versus-end-of-period substitution
+        -- CLAUDE.md names as the most common bug in HR analytics, committed in the one view
+        -- whose denominator is FTE rather than headcount.
+        --
+        -- The error flips sign with hiring direction: month-end FTE flatters a growing
+        -- department and penalises a shrinking one, so Sales in a quarter it was shedding
+        -- staff read 1.34% better than reality.
+        SUM(
+            (CASE WHEN s.active_at_month_start THEN s.fte ELSE 0 END)
+            + (CASE WHEN s.active_at_month_end THEN s.fte ELSE 0 END)
+        ) / 2.0                                         AS fte_months,
         COUNT(DISTINCT s.month_start)                   AS months_observed
     FROM fact_monthly_headcount_snapshot s
     GROUP BY quarter_start, s.department_id
