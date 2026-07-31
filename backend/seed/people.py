@@ -360,13 +360,22 @@ def _month_hazard(person: Person, month_first: date) -> float:
     return weight
 
 
+#: Minimum tenure before anyone can exit. Two months, not three: at three, *nobody* could
+#: leave inside 90 days, which made 90-day retention exactly 100% for every channel — a
+#: metric that cannot discriminate is worse than no metric, because it looks like a finding.
+MINIMUM_TENURE_MONTHS_BEFORE_EXIT = 2
+
+
 def _eligible_months(person: Person) -> list[date]:
     """Months in which this person could plausibly exit.
 
-    A minimum of three months' tenure keeps the data free of same-quarter
-    hire-and-leave noise that would distort new-hire retention.
+    A short minimum tenure keeps out same-week hire-and-leave noise while still allowing
+    the early churn that real organizations have.
     """
-    earliest = max(month_start(WINDOW_START), month_start(add_months(person.hire_date, 3)))
+    earliest = max(
+        month_start(WINDOW_START),
+        month_start(add_months(person.hire_date, MINIMUM_TENURE_MONTHS_BEFORE_EXIT)),
+    )
     return [m for m in iter_months(earliest, WINDOW_END) if m >= earliest]
 
 
@@ -430,12 +439,20 @@ def assign_terminations(people: list[Person], rng: np.random.Generator, scale: f
         person = team[index]
         quarter = quarters[index % len(quarters)]
         regretted = index < sc.BAD_MANAGER_REGRETTED_EXITS
+        # All six leave voluntarily — people quitting a manager is the story. The split is
+        # in the rating: four are rated 4+ and therefore regretted, and the other two are
+        # pinned at 3 so they are *definitely not*.
+        #
+        # Pinning the non-regretted pair matters. Leaving their ratings to chance meant
+        # that when an unrelated change shifted the RNG stream, both happened to draw
+        # voluntary-and-4-plus, and "4 of 6 regretted" silently became 6 of 6. Half of an
+        # exact claim is not an exact claim.
         _terminate(
             person,
             rng,
             _random_day_in_quarter(rng, quarter),
-            force_voluntary=regretted,
-            force_rating=4 + (index % 2) if regretted else None,
+            force_voluntary=True,
+            force_rating=(4 + (index % 2)) if regretted else 3,
         )
         terminated.add(person.employee_id)
 
@@ -455,8 +472,14 @@ def assign_terminations(people: list[Person], rng: np.random.Generator, scale: f
         ]
         n_exits = round(len(cohort) * (1.0 - retention))
         for person in cohort[:n_exits]:
-            # Inside 12 months of hire, and never in the first three.
-            offset_months = int(rng.integers(3, sc.RETENTION_HORIZON_MONTHS))
+            # Anywhere inside the 12-month horizon. Starting at month 1 rather than 3 is
+            # what gives 90-day retention something to measure: with a 3-month floor every
+            # channel retained exactly 100% at 90 days. The 12-month figures are unaffected
+            # because the *count* of exits inside the horizon is what is forced, not when
+            # they fall within it.
+            offset_months = int(
+                rng.integers(MINIMUM_TENURE_MONTHS_BEFORE_EXIT - 1, sc.RETENTION_HORIZON_MONTHS)
+            )
             exit_month = add_months(person.hire_date, offset_months)
             day = min(exit_month, WINDOW_END)
             _terminate(person, rng, day)

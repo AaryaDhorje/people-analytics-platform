@@ -409,6 +409,43 @@ def check_reorg(session: Session) -> dict[str, float | None]:
     before_rate = _annualized(before.get("exits"), before.get("headcount_months"))
     after_rate = _annualized(after.get("exits"), after.get("headcount_months"))
 
+    # Does individual engagement predict individual attrition? Computed from base tables
+    # rather than from v_engagement_attrition, so this stays an independent check on the
+    # view rather than a restatement of it.
+    gradient = one(
+        session,
+        """
+        WITH per_response AS (
+          SELECT r.employee_id, sv.quarter_start,
+                 (r.driver_manager + r.driver_growth + r.driver_recognition
+                  + r.driver_workload + r.driver_belonging) / 5.0 AS raw_index
+          FROM fact_survey_response r
+          JOIN dim_survey sv ON sv.survey_id = r.survey_id
+        ),
+        banded AS (
+          SELECT p.*, NTILE(4) OVER (PARTITION BY p.quarter_start ORDER BY p.raw_index) AS q
+          FROM per_response p
+        ),
+        following AS (
+          SELECT b.q,
+                 SUM(s.terminated_in_month::int) AS exits,
+                 SUM((s.active_at_month_start::int + s.active_at_month_end::int) / 2.0) AS hcm
+          FROM banded b
+          JOIN fact_monthly_headcount_snapshot s
+            ON s.employee_id = b.employee_id
+           AND s.month_start >= b.quarter_start
+           AND s.month_start < (b.quarter_start + INTERVAL '6 months')
+          GROUP BY b.q
+        )
+        SELECT
+          MAX(CASE WHEN q = 1 THEN exits * 12 / NULLIF(hcm, 0) END) AS bottom_rate,
+          MAX(CASE WHEN q = 4 THEN exits * 12 / NULLIF(hcm, 0) END) AS top_rate
+        FROM following
+        """,
+    )
+    bottom_rate = gradient.get("bottom_rate")
+    top_rate = gradient.get("top_rate")
+
     return {
         "belonging_drop": (pre_belonging - during_belonging)
         if (pre_belonging and during_belonging)
@@ -416,6 +453,9 @@ def check_reorg(session: Session) -> dict[str, float | None]:
         "growth_drop": (pre_growth - during_growth) if (pre_growth and during_growth) else None,
         "lagged_attrition_rise": (after_rate / before_rate)
         if (before_rate and after_rate)
+        else None,
+        "engagement_attrition_gradient": (float(bottom_rate) / float(top_rate))
+        if (bottom_rate and top_rate)
         else None,
     }
 

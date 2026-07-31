@@ -162,6 +162,29 @@ REORG_AFFECTED_QUARTERS: tuple[date, ...] = (date(2025, 7, 1), date(2025, 10, 1)
 REORG_ATTRITION_LAG_QUARTERS = 2
 REORG_ATTRITION_HAZARD_BUMP = 1.55
 
+#: Individual engagement has to predict individual attrition, not just move alongside it
+#: at company level. Without this, survey scores are generated independently of who leaves
+#: and the engagement-quartile-versus-attrition chart shows pure noise — the first
+#: measurement had the *most* engaged quartile leaving fastest, at 11.1% against 9.6%.
+#:
+#: Terminations are assigned before surveys are generated, so the penalty runs the honest
+#: direction: someone who is about to leave answers worse beforehand. Bands are
+#: (months until exit, points deducted from every driver).
+#:
+#: These look small, and they have to be. Per-answer noise is 12 points, but the engagement
+#: index averages five drivers, so the index's own noise is only 12/sqrt(5) ~= 5.4 points.
+#: A 22-point penalty was tried first and is roughly 4 sigma: it sorted every future leaver
+#: into the bottom quartile and left quartiles 3 and 4 with literally zero exits, turning a
+#: correlation into a step function and making the ratio undefined. Around 1 sigma produces
+#: a gradient instead of a partition.
+ENGAGEMENT_EXIT_PENALTY: tuple[tuple[int, float], ...] = (
+    (3, 6.0),
+    (6, 4.0),
+    (12, 2.0),
+)
+#: Bottom engagement quartile should leave at least this many times faster than the top.
+ENGAGEMENT_ATTRITION_GRADIENT = 1.8
+
 
 # --- 4. Sales pipeline bottleneck -------------------------------------------
 SALES_INTERVIEW_DWELL_DAYS = 41
@@ -301,6 +324,14 @@ SCENARIOS: tuple[Scenario, ...] = (
                 "Attrition rise 2 quarters after the reorg",
                 1.0,
                 0.0,
+                "x",
+                "at_least",
+            ),
+            Target(
+                "engagement_attrition_gradient",
+                "Bottom engagement quartile attrition vs top quartile",
+                ENGAGEMENT_ATTRITION_GRADIENT,
+                0.3,
                 "x",
                 "at_least",
             ),

@@ -12,14 +12,14 @@ evenly. Phase 6 asks Haiku to extract themes, and themes only emerge if the
 comments actually concentrate somewhere.
 """
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import numpy as np
 
 from seed import scenarios as sc
 from seed.people import Person, bad_manager_team
 from seed.reference import survey_rows
-from seed.util import clamp, dec
+from seed.util import clamp, dec, months_between
 
 DRIVERS: tuple[str, ...] = ("manager", "growth", "recognition", "workload", "belonging")
 
@@ -110,6 +110,23 @@ COMMENTS_NEUTRAL = (
 )
 
 
+def _exit_penalty(person: Person, survey_close: date) -> float:
+    """Points deducted from every driver because this person is about to leave.
+
+    Disengagement precedes departure, so someone three months from resigning answers worse
+    than someone who is staying. Without this the engagement-to-attrition link is pure
+    noise: terminations are drawn from a hazard model that never consults engagement, so
+    the two are statistically independent by construction.
+    """
+    if person.termination_date is None or person.termination_date < survey_close:
+        return 0.0
+    months_to_exit = months_between(survey_close, person.termination_date)
+    for band_months, penalty in sc.ENGAGEMENT_EXIT_PENALTY:
+        if months_to_exit < band_months:
+            return penalty
+    return 0.0
+
+
 def _driver_scores(
     rng: np.random.Generator,
     person: Person,
@@ -118,8 +135,11 @@ def _driver_scores(
     *,
     on_bad_team: bool,
     reorg_affected: bool,
+    survey_close: date,
 ) -> dict[str, int]:
     """Scores on 0-100, offset by scenario, returned as raw 1-5 integers."""
+    exit_penalty = _exit_penalty(person, survey_close)
+
     scores: dict[str, int] = {}
     for index, driver in enumerate(DRIVERS):
         value = sc.DRIVER_BASELINE[driver]
@@ -135,6 +155,8 @@ def _driver_scores(
 
         if reorg_affected and driver in sc.REORG_AFFECTED_DRIVERS:
             value -= sc.REORG_DRIVER_DROP
+
+        value -= exit_penalty
 
         value += float(rng.normal(0, RESPONSE_NOISE))
         value = clamp(value, 0.0, 100.0)
@@ -212,6 +234,7 @@ def build_survey_responses(
                 department_index,
                 on_bad_team=on_bad_team,
                 reorg_affected=reorg_affected,
+                survey_close=closes_on,  # type: ignore[arg-type]
             )
             index = _engagement_index(scores)
 
