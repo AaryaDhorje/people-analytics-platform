@@ -708,8 +708,37 @@ report-months is the correct period-weighted span and is what the chart plots; t
 themselves are labelled as months rather than as people. The general rule: a sum over a
 time-grained view is an exposure, not a population, and the axis label has to say so.
 
+## The AI provider seam
+
+`app/ai/` will read `settings.resolved_ai_provider` and `settings.resolved_models`; nothing
+else in the codebase knows which vendor answers. Set `GOOGLE_API_KEY` or
+`ANTHROPIC_API_KEY` and the provider follows; with neither, `settings.ai_enabled` is False
+and every AI route degrades to a message rather than a stack trace.
+
+Running on Gemini rather than Claude, which changes one thing in BUILD_PLAN phase 6:
+**assistant prefill does not exist**. Its replacement is `responseSchema` with
+`responseMimeType: application/json`, which is a stronger guarantee — it constrains
+decoding rather than nudging it, so the response parses with no cleanup step at all.
+
+Three findings from probing the live API, each of which would otherwise have surfaced
+mid-demo:
+
+- **A listed model is not a callable model.** `models.list` returns 42 models supporting
+  `generateContent` on a free key. Calling them: `gemini-2.5-flash` and
+  `gemini-2.5-flash-lite` answer 404 "no longer available to new users", every `pro`
+  answers 429 RESOURCE_EXHAUSTED, and `gemini-3.5-flash` answers 503. A free key is
+  flash-class only. The defaults in `AI_PROVIDERS` were chosen by calling every candidate.
+- **The generated SQL anchors to the wall clock unless forbidden.** Asked for "the last
+  year", the model produced `WHERE quarter_start >= CURRENT_DATE - INTERVAL '1 year'`. The
+  warehouse covers a fixed span, so that returns less and less data every day and
+  eventually nothing — the same trap the overview and the manager ranking both had to fix.
+  The NL→SQL system prompt must require anchoring to the data's own maximum date.
+- **Gemini 3.x models reason before answering**, so `maxOutputTokens` has to cover the
+  thinking budget as well as the answer. Set too low, the call returns 200 with no text
+  rather than an error.
+
 ## Next
 
-Phase 6 adds the AI layer: `app/ai/` with NL→SQL against the view allowlist, narrative
+Phase 6 builds `app/ai/` on that seam: NL→SQL against the view allowlist, narrative
 generation, and batch comment classification into `fact_comment_theme` — which is why
 `/api/engagement/themes` is currently the one endpoint returning no rows.

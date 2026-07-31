@@ -12,12 +12,20 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 #: provider -> (reasoning model, bulk model). Reasoning drives NL->SQL and narrative; bulk
-#: classifies ~2,400 survey comments in one batch, where cost per token matters and the task
-#: is easy. Confirm these ids against the vendor's current model list before phase 6 —
-#: BUILD_PLAN section 0 says the same thing about the Claude pair, and it applies to both.
+#: classifies ~2,400 survey comments, where cost per token matters and the task is easy.
+#:
+#: The Gemini pair was chosen by *calling* every candidate, not by reading the model list,
+#: because the list is not a capability check. `models.list` on this key advertises
+#: `gemini-2.5-pro` and `gemini-2.5-flash`; generateContent then returns 404 "no longer
+#: available to new users" for the flash and 429 RESOURCE_EXHAUSTED for every `pro`, which
+#: carries no free-tier quota. Flash-class models are what a free key can actually run.
+#:
+#: Override per environment with MODEL_REASONING / MODEL_BULK. Re-probe before relying on
+#: these: both vendors retire ids on their own schedule, and BUILD_PLAN section 0 says the
+#: same thing about the Claude pair.
 AI_PROVIDERS: dict[str, tuple[str, str]] = {
     "anthropic": ("claude-sonnet-5", "claude-haiku-4-5-20251001"),
-    "gemini": ("gemini-2.5-pro", "gemini-2.5-flash"),
+    "gemini": ("gemini-3.6-flash", "gemini-3.5-flash-lite"),
 }
 
 

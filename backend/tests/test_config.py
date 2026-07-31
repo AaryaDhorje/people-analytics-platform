@@ -92,7 +92,10 @@ def test_a_google_key_alone_selects_gemini_and_its_models() -> None:
 
     assert settings.resolved_ai_provider == "gemini"
     assert settings.ai_api_key == "test-key"
-    assert settings.resolved_models == ("gemini-2.5-pro", "gemini-2.5-flash")
+    # Flash-class on both slots, because a free Gemini key cannot call a `pro` model at
+    # all — every one returns 429 RESOURCE_EXHAUSTED. Verified by probing generateContent,
+    # not by reading `models.list`, which advertises models it cannot run.
+    assert settings.resolved_models == ("gemini-3.6-flash", "gemini-3.5-flash-lite")
 
 
 def test_an_anthropic_key_alone_selects_claude_and_its_models() -> None:
