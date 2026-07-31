@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/Card'
 import { KpiCard, KpiCardSkeleton } from '@/components/KpiCard'
+import { NarrativePanel } from '@/components/NarrativePanel'
 import { ErrorState } from '@/components/States'
 import { useMetric } from '@/hooks/useMetric'
 import type { Overview as OverviewData } from '@/lib/api'
@@ -40,6 +41,10 @@ export default function Overview() {
           ) : null
         }
       />
+
+      {/* Above the cards, because it says which of them to look at. It renders nothing at
+          all when no AI key is configured — the page below is complete without it. */}
+      <NarrativePanel />
 
       <div
         className={`grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 ${

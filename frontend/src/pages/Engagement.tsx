@@ -651,6 +651,10 @@ function QuartileAttritionCard() {
 
 // --- Comment themes ---------------------------------------------------------
 
+/** Enough to show the shape of what people are saying without turning the card into a
+ *  transcript. The rest are one endpoint call away. */
+const THEMES_SHOWN = 10
+
 /** Sentiment is a status, not a series — so it ships with a label, never colour alone. */
 const SENTIMENT_STYLE: Record<string, string> = {
   negative: 'bg-risk-soft text-risk',
@@ -676,8 +680,11 @@ function CommentThemes() {
           title="Comment themes"
           subtitle="Extracted from open-text survey responses, with sentiment and volume."
         >
+          {/* Capped at the top ten. The endpoint returns every (theme, sentiment) pair,
+              which is twenty rows and twice the height of the card beside it — a column of
+              dead space next to a chart is a worse read than a shorter list. */}
           <ul className="space-y-2">
-            {envelope.data.map((theme) => (
+            {envelope.data.slice(0, THEMES_SHOWN).map((theme) => (
               <li
                 key={`${theme.theme}-${theme.sentiment}`}
                 className="flex items-center justify-between gap-4 rounded border border-ink-200 px-3 py-2"
@@ -705,6 +712,15 @@ function CommentThemes() {
               </li>
             ))}
           </ul>
+
+          <p className="mt-3 font-sans text-[11px] leading-relaxed text-ink-500">
+            {envelope.data.length > THEMES_SHOWN
+              ? `Top ${THEMES_SHOWN} of ${formatCount(envelope.data.length)} theme-and-sentiment pairs. `
+              : ''}
+            Themes are assigned once per distinct comment and then counted across every
+            response carrying it, so volume is the number of people who said it rather than
+            the number of phrasings.
+          </p>
         </Card>
       )}
     </Async>

@@ -37,17 +37,31 @@ EXPECTED_TABLES = {
     "fact_comment_theme",
 }
 
+#: Tables that exist to run the application rather than to model the business. They are
+#: listed separately so the star-schema counts below stay meaningful — "21 tables" is a
+#: statement about the warehouse, and quietly incrementing it whenever an operational table
+#: appears would turn the guard into a number that always agrees with reality.
+OPERATIONAL_TABLES = {
+    "ai_cache",  # phase 6: read-through cache for AI responses
+}
+
 
 def test_all_models_are_registered() -> None:
     """A model missing from app/models/__init__.py is invisible to Alembic, which
     then generates a DROP TABLE for it on the next revision."""
     configure_mappers()
 
-    assert set(Base.metadata.tables) == EXPECTED_TABLES
+    assert set(Base.metadata.tables) == EXPECTED_TABLES | OPERATIONAL_TABLES
 
 
-def test_expected_table_count() -> None:
-    assert len(Base.metadata.tables) == 21
+def test_the_star_schema_is_still_eight_dimensions_and_thirteen_facts() -> None:
+    """The shape docs/ARCHITECTURE.md describes. A new warehouse table has to be a
+    deliberate change to that document, not a side effect of adding a model."""
+    warehouse = set(Base.metadata.tables) - OPERATIONAL_TABLES
+
+    assert len(warehouse) == 21
+    assert sum(1 for t in warehouse if t.startswith("dim_")) == 8
+    assert sum(1 for t in warehouse if t.startswith("fact_")) == 13
 
 
 def test_employee_manager_is_a_resolvable_self_reference() -> None:

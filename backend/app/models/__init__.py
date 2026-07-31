@@ -17,6 +17,7 @@ Design notes worth knowing before adding to this package:
 """
 
 from app.db import Base
+from app.models.ai import AiCache
 from app.models.calendar import DimDate
 from app.models.engagement import DimSurvey, FactCommentTheme, FactSurveyResponse
 from app.models.enums import (
@@ -55,6 +56,7 @@ from app.models.workforce import (
 
 __all__ = [
     "FUNNEL_ORDER",
+    "AiCache",
     "AbsenceType",
     "ApplicationStage",
     "Base",

@@ -282,6 +282,65 @@ export interface RiskBandCount {
   employees: number
 }
 
+// --- AI layer ---------------------------------------------------------------
+//
+// Every shape carries `available`. The AI layer is optional — the product works with no key
+// at all — so "switched off" arrives as a 200 with a reason rather than as an error the UI
+// has to interpret.
+
+export interface AiStatus {
+  available: boolean
+  provider: string | null
+  reasoning_model: string | null
+  bulk_model: string | null
+  reason: string | null
+}
+
+export interface ExampleQuestion {
+  question: string
+  hint: string
+}
+
+export interface AskResponse {
+  question: string
+  available: boolean
+  refused: boolean
+  sql: string | null
+  explanation: string
+  refusal_reason: string
+  columns: string[]
+  /** Column names depend on the question, so a row cannot be typed further than this. */
+  rows: Record<string, unknown>[]
+  truncated: boolean
+  tables: string[]
+  model: string
+  cached: boolean
+}
+
+export interface NarrativeSummary {
+  available: boolean
+  headline: string
+  bullets: string[]
+  model: string
+  cached: boolean
+  /** True when the provider failed and an older answer was served rather than none. */
+  stale: boolean
+  generated_at: string | null
+  reason: string | null
+}
+
+export interface RiskExplanationResponse {
+  employee_id: string
+  available: boolean
+  score: number | null
+  band: string | null
+  explanation: string
+  components: string[]
+  model: string
+  cached: boolean
+  reason: string | null
+}
+
 // --- Transport --------------------------------------------------------------
 
 const BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
@@ -344,6 +403,41 @@ export async function apiGet<T>(
     try {
       const body = (await response.json()) as { detail?: string }
       detail = body.detail ?? ''
+    } catch {
+      detail = await response.text().catch(() => '')
+    }
+    throw new ApiError(response.status, path, detail || `Request failed (${response.status})`)
+  }
+
+  return (await response.json()) as Envelope<T>
+}
+
+/** POST, for the one endpoint that takes a body.
+ *
+ * `/api/ai/ask` is a POST because the question is arbitrary user text: putting it in a URL
+ * puts it in every proxy access log between here and Render, and caps it at whatever the
+ * shortest URL limit in the chain happens to be.
+ */
+export async function apiPost<T>(path: string, body: unknown): Promise<Envelope<T>> {
+  let response: Response
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(DEMO_TOKEN ? { Authorization: `Bearer ${DEMO_TOKEN}` } : {}),
+      },
+      body: JSON.stringify(body),
+    })
+  } catch {
+    throw new ApiError(0, path, 'Could not reach the API. It may still be starting up.')
+  }
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const parsed = (await response.json()) as { detail?: string }
+      detail = parsed.detail ?? ''
     } catch {
       detail = await response.text().catch(() => '')
     }

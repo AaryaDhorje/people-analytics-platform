@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.api.routes import (
     acquisition,
+    ai,
     engagement,
     flight_risk,
     health,
@@ -76,6 +77,9 @@ for metric_router in (
     engagement.router,
     productivity.router,
     flight_risk.router,
+    # The AI routes are authenticated like any other. They are the only ones that spend
+    # money per request, so leaving them open would be the most expensive omission here.
+    ai.router,
 ):
     app.include_router(metric_router, dependencies=[DemoAuth])
 

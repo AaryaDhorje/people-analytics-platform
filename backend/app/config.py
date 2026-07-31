@@ -20,6 +20,16 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 #: available to new users" for the flash and 429 RESOURCE_EXHAUSTED for every `pro`, which
 #: carries no free-tier quota. Flash-class models are what a free key can actually run.
 #:
+#: **The free tier is 20 requests per day, per model, per project** — not per minute. The
+#: quota id is `GenerateRequestsPerDayPerProjectPerModel-FreeTier`. Two consequences worth
+#: knowing before a demo:
+#:
+#:   - `ai_cache` is not an optimisation here, it is the only thing that makes the feature
+#:     usable. Twenty uncached questions exhausts a model for the day.
+#:   - Each model has its own bucket, so exhausting the reasoning model does not touch the
+#:     bulk one, and pointing MODEL_REASONING at a different model buys another 20.
+#:     `python -m app.ai.prewarm` fills the demo path; run it well before recording.
+#:
 #: Override per environment with MODEL_REASONING / MODEL_BULK. Re-probe before relying on
 #: these: both vendors retire ids on their own schedule, and BUILD_PLAN section 0 says the
 #: same thing about the Claude pair.

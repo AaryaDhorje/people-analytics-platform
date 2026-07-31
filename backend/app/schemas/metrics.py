@@ -403,6 +403,76 @@ class RiskBandCount(MetricModel):
     employees: int
 
 
+# --- AI layer ---------------------------------------------------------------
+#
+# Every model here carries `available`. The AI layer is optional — the product works with no
+# key at all — so "switched off" has to be a shape the API can return with HTTP 200 rather
+# than an error the frontend has to interpret.
+
+
+class AiStatus(MetricModel):
+    available: bool
+    provider: str | None = None
+    reasoning_model: str | None = None
+    bulk_model: str | None = None
+    reason: str | None = None
+
+
+class ExampleQuestion(MetricModel):
+    question: str
+    hint: str
+
+
+class AskResponse(MetricModel):
+    """The answer, the SQL that produced it, and why if it refused.
+
+    `sql` is populated even on a refusal when the model produced something the guard then
+    rejected — showing the rejected query is what makes the refusal checkable instead of
+    mysterious.
+    """
+
+    question: str
+    available: bool
+    refused: bool
+    sql: str | None = None
+    explanation: str = ""
+    refusal_reason: str = ""
+    columns: list[str] = []
+    #: Arbitrary shapes: the columns depend on the question, so this cannot be typed further
+    #: without constraining what may be asked.
+    rows: list[dict[str, Any]] = []
+    truncated: bool = False
+    tables: list[str] = []
+    model: str = ""
+    cached: bool = False
+
+
+class NarrativeSummary(MetricModel):
+    available: bool
+    headline: str = ""
+    bullets: list[str] = []
+    model: str = ""
+    cached: bool = False
+    #: True when the provider failed and an older answer was served rather than none.
+    stale: bool = False
+    generated_at: str | None = None
+    reason: str | None = None
+
+
+class RiskExplanationResponse(MetricModel):
+    employee_id: str
+    available: bool
+    score: float | None = None
+    band: str | None = None
+    explanation: str = ""
+    #: The raw component sentences the prose was written from, so the explanation can be
+    #: checked against the arithmetic rather than trusted.
+    components: list[str] = []
+    model: str = ""
+    cached: bool = False
+    reason: str | None = None
+
+
 # --- Overview ---------------------------------------------------------------
 
 

@@ -13,13 +13,16 @@ dependencies = [
     "pydantic>=2.10",             # response models
     "pydantic-settings>=2.7",     # env-var config with validation
     "numpy>=2.1",                 # seeded RNG for the synthetic data generator (seed=42)
-    "anthropic>=0.40",            # Claude API client for the AI layer
+    "httpx>=0.28",                # AI provider adapters call the vendor REST APIs directly
+    "sqlglot>=25",                # parses generated SQL so the allowlist walks an AST, not a regex
 ]
+# `anthropic` was declared here and never imported. Both providers are one POST of JSON, so
+# app/ai/provider.py speaks REST to either vendor rather than reconciling two SDKs — and a
+# Render cold start does not pay to install a client nothing calls.
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",                # required by fastapi TestClient
     "ruff>=0.8",
 ]
 
