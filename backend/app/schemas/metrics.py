@@ -154,6 +154,20 @@ class RequisitionAging(MetricModel):
     threshold_days: int
 
 
+class TimeToFillPoint(MetricModel):
+    period: date
+    filled_positions: int
+    mean_days: float | None
+
+
+class SourceCost(MetricModel):
+    source_id: int | None
+    hires: int
+    total_cost: float | None
+    external_cost: float | None
+    cost_per_hire: float | None
+
+
 class SourceEffectiveness(MetricModel):
     source_id: int | None
     applications: int
@@ -296,10 +310,34 @@ class RevenuePerFte(MetricModel):
     revenue_per_fte: float | None
 
 
+class UtilizationWeek(MetricModel):
+    period: date
+    department_id: int | None
+    billable_hours: float
+    available_hours: float
+    utilization: float | None
+
+
+class OvertimeMonth(MetricModel):
+    period: date
+    department_id: int | None
+    total_hours: float
+    overtime_hours: float
+    overtime_rate: float | None
+
+
 class SpanOfControl(MetricModel):
     managers: int
     direct_reports: int
     largest_team: int | None
+    span: float | None
+
+
+class SpanByLevel(MetricModel):
+    department_id: int | None
+    job_level_id: int | None
+    managers: int
+    direct_reports: int
     span: float | None
 
 

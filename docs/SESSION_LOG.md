@@ -350,3 +350,65 @@ phase 6.
 and **there is still no git remote** — six commits exist only on this machine, and both Render
 and Vercel deploy from a remote, so phase 7 is blocked until one exists. Worth doing before the
 plan's sleep block rather than discovering it at H20:00.
+
+## Phase 5 — Dashboard (H8:30–H13:30 allotted)
+
+**Prompt strategy.** Built one page at a time on the user's instruction — shell, then Overview,
+Retention, Acquisition, Engagement, Productivity — rather than as a single sweep, because five
+pages of layout risk accumulating behind one build command is five fixes instead of one. No plan
+mode: the endpoint contract was frozen in phase 4, so this phase had no architectural choices
+left to make, only presentational ones. The `dataviz` skill was loaded before the first chart and
+governed every form decision after that; `validate_palette.js` was run against the token set
+rather than colours being eyeballed. No subagents. The `frontend-builder` agent exists and was
+deliberately not used: it takes an endpoint contract and returns components, but the judgement
+calls in this phase were about which chart form tells the truth, and that is not work to hand off
+blind.
+
+**Accepted.** Every chart ships a **table-view twin** on a per-card toggle. Three slots in the
+validated palette sit below 3:1 contrast on white, and the relief for that is visible labels or a
+table; the same toggle covers a value reachable only by hover — unreachable by keyboard and by
+anyone reading a screenshot — and is the WCAG-clean equivalent of the two colour-encoded scales
+(the utilization heatmap and the risk bands). Colour slots are **keyed by entity id, never by
+rank**, so filtering one department out cannot repaint the survivors. The heatmap and the span
+ramp use **fixed bands**, so a shade means the same thing under every filter — the span ramp was
+rewritten to key off the level id after the positional version painted L5 and L6 the two lightest
+shades of a six-step scale. Red is reserved: `--color-risk` appears only where a person is likely
+to leave, which is why the seven-slot categorical palette had red removed and was re-validated.
+`Async` renders all four states in one component so no page can forget one, and `placeholderData`
+dims a stale render rather than dropping to skeletons, which is what stops the layout jumping on
+every filter change.
+
+**Rejected.** The plan's **radar chart** for engagement drivers was dropped for a heatmap. A
+radar encodes magnitude as distance from a centre, which is area-not-length, and the shape it
+draws depends on the arbitrary order the axes happen to be in — rotate the drivers and the same
+data looks like a different organisation. The plan's **distinct display face** for headings was
+dropped for a single `--font-sans`: a webfont round-trip on a cold Render load delays the first
+number on screen, and the dataviz guidance flags display faces on hero figures specifically.
+Acquisition's source scatter was cut from an all-pairs comparison to a **single-hue,
+direct-labelled** plot, because the all-pairs legibility cap is three series and there are six
+channels. And on Productivity, the first draft of the span table was thrown away after checking
+it against real data: `v_span_of_control` is grained by month, so summing its `managers` column
+gives *manager-months* — 1,905 for one department-level against a company of ~1,200 people. The
+ratio was right and would have demoed fine; the label was a lie. Columns now read manager-months
+and report-months with a footnote saying why the weighting is deliberate.
+
+**Found by running it, not reading it.** The API on :8000 had been serving a stale build —
+`--reload` never picked up three routes added for the Productivity page, so they returned 404
+while `pytest` stayed green, because the tests build their own app. Killing the parent uvicorn
+left an **orphaned child still holding the port**, so the first restart looked like it worked and
+served the same stale routes. The server now runs without `--reload` and is restarted manually.
+This is the fourth phase in a row where the most serious defect surfaced from executing
+something rather than reading it.
+
+**Numbers.** 28 files (17 new, 11 modified), ~3,900 lines of frontend. **272 tests passing**, up
+from 261. **47 endpoints live**, 46 returning non-empty data — `/api/engagement/themes` is
+correctly empty until phase 6 populates `fact_comment_theme`, and the page renders that as "no
+themes extracted yet" rather than as an error. `ruff` clean, `tsc` zero errors.
+
+**Blockers.** One real one: **no page has been looked at.** Five pages rest on `tsc` passing,
+which says nothing about label collisions, overflow, or whether a 26-column heatmap fits its
+card. There are no browser tools in this session — the Chrome extension was offered and
+declined — so step 7 of the dataviz procedure ("render it and look at it") is outstanding for
+every page and can only be closed by a human opening `http://localhost:5180`. Unchanged from
+phase 4: `ANTHROPIC_API_KEY` is still empty, which gates phase 6. The git remote blocker is
+cleared — the repo is public at `AaryaDhorje/people-analytics-platform`, so phase 7 can deploy.

@@ -202,6 +202,21 @@ v_source_quality = Table(
 )
 
 
+v_source_cost = Table(
+    "v_source_cost",
+    VIEW_METADATA,
+    Column("source_id", SmallInteger),
+    Column("department_id", SmallInteger),
+    Column("location_id", SmallInteger),
+    Column("opened_quarter", Date),
+    Column("opened_month", Date),
+    Column("hires", Integer),
+    Column("attributed_cost", Numeric),
+    Column("attributed_internal_cost", Numeric),
+    Column("attributed_external_cost", Numeric),
+)
+
+
 # --- Engagement -------------------------------------------------------------
 
 v_survey_scores = Table(

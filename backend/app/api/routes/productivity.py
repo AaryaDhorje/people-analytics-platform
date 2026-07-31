@@ -13,10 +13,13 @@ from app.schemas.metrics import (
     GoalAttainment,
     OutputPerHead,
     Overtime,
+    OvertimeMonth,
     RevenuePerFte,
+    SpanByLevel,
     SpanOfControl,
     Training,
     Utilization,
+    UtilizationWeek,
 )
 
 router = APIRouter(prefix="/api/productivity", tags=["productivity"])
@@ -32,10 +35,25 @@ def utilization(db: Db, filters: Filters) -> Envelope[Utilization]:
     return envelope(data, filters_applied=filters.as_dict())
 
 
+@router.get("/utilization/by-week", response_model=Envelope[list[UtilizationWeek]])
+def utilization_by_week(db: Db, filters: Filters) -> Envelope[list[UtilizationWeek]]:
+    """Weekly utilization per team, for the heatmap."""
+    data = productivity.utilization_by_week(db, filters)
+    return envelope(data, filters_applied=filters.as_dict())
+
+
 @router.get("/overtime", response_model=Envelope[Overtime])
 def overtime(db: Db, filters: Filters) -> Envelope[Overtime]:
     """Hours over 40 per week, over total hours. The threshold is applied per week."""
     data = productivity.overtime(db, filters)
+    return envelope(data, filters_applied=filters.as_dict())
+
+
+@router.get("/overtime/trend", response_model=Envelope[list[OvertimeMonth]])
+def overtime_trend(db: Db, filters: Filters) -> Envelope[list[OvertimeMonth]]:
+    """Overtime per team per month. The 40-hour threshold was applied per week before
+    any of this was summed."""
+    data = productivity.overtime_by_month(db, filters)
     return envelope(data, filters_applied=filters.as_dict())
 
 
@@ -57,6 +75,14 @@ def revenue_per_fte(db: Db, filters: Filters) -> Envelope[list[RevenuePerFte]]:
 def span_of_control(db: Db, filters: Filters) -> Envelope[SpanOfControl]:
     """Average direct reports per manager, counting only managers who have reports."""
     data = productivity.span_of_control(db, filters)
+    return envelope(data, filters_applied=filters.as_dict())
+
+
+@router.get("/span-of-control/by-level", response_model=Envelope[list[SpanByLevel]])
+def span_of_control_by_level(db: Db, filters: Filters) -> Envelope[list[SpanByLevel]]:
+    """Span grained by the manager's own department and level — not the reports' level,
+    which would split one manager across several rows."""
+    data = productivity.span_of_control_by_level(db, filters)
     return envelope(data, filters_applied=filters.as_dict())
 
 

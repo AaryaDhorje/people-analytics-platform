@@ -193,6 +193,25 @@ def test_cost_per_hire_by_department_and_quarter(db: Session) -> None:
     assert sup["cost_per_hire"] is None
 
 
+def test_cost_per_hire_by_source_attributes_the_requisition_to_the_hire(db: Session) -> None:
+    """R-001 cost 10,000 filled one hire, and that hire came through REFERRAL — so the
+    whole 10,000 attributes to referral and no other channel carries any cost.
+
+    R-002 is still open with 3,000 spent and no hire, so it contributes nothing: a
+    channel's cost per hire cannot include spend that has not produced a hire.
+    """
+    rows = {row["source_id"]: row for row in acquisition.cost_per_hire_by_source(db, WINDOW)}
+
+    assert rows[REFERRAL]["hires"] == 1
+    assert rows[REFERRAL]["total_cost"] == pytest.approx(10_000.0)
+    assert rows[REFERRAL]["cost_per_hire"] == pytest.approx(10_000.0)
+
+    # Agency and job board applied but never landed a hire, so they have no attributed
+    # cost at all rather than a share of the requisition they lost.
+    assert AGENCY not in rows
+    assert JOBBOARD not in rows
+
+
 # --- Requisition aging ------------------------------------------------------
 
 

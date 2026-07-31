@@ -15,9 +15,11 @@ from app.schemas.metrics import (
     OfferAcceptance,
     QualityOfHire,
     RequisitionAging,
+    SourceCost,
     SourceEffectiveness,
     SourceRetention,
     TimeToFill,
+    TimeToFillPoint,
     TimeToHire,
 )
 
@@ -31,6 +33,24 @@ Db = Annotated[Session, Depends(get_db)]
 def time_to_fill(db: Db, filters: Filters) -> Envelope[TimeToFill]:
     """Days from requisition open to offer accepted."""
     data = acquisition.time_to_fill(db, filters)
+    return envelope(data, filters_applied=filters.as_dict())
+
+
+@router.get("/time-to-fill/trend", response_model=Envelope[list[TimeToFillPoint]])
+def time_to_fill_trend(db: Db, filters: Filters) -> Envelope[list[TimeToFillPoint]]:
+    """Time to fill by the month the requisition opened."""
+    data = acquisition.time_to_fill_by_month(db, filters)
+    return envelope(data, filters_applied=filters.as_dict())
+
+
+@router.get("/cost-per-hire/by-source", response_model=Envelope[list[SourceCost]])
+def cost_per_hire_by_source(db: Db, filters: Filters) -> Envelope[list[SourceCost]]:
+    """Cost per hire attributed to the hiring channel.
+
+    Read beside 12-month retention by the same channel: the point is that the two
+    disagree, and the most expensive channel is also the worst-retaining one.
+    """
+    data = acquisition.cost_per_hire_by_source(db, filters)
     return envelope(data, filters_applied=filters.as_dict())
 
 

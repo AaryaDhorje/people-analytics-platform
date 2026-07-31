@@ -27,6 +27,7 @@ from app.metrics.tables import (
     v_application_funnel,
     v_application_outcomes,
     v_requisition_metrics,
+    v_source_cost,
     v_source_quality,
 )
 
@@ -246,6 +247,34 @@ def cost_per_hire(db: Session, filters: MetricFilters) -> list[dict[str, Any]]:
     ]
 
 
+def cost_per_hire_by_source(db: Session, filters: MetricFilters) -> list[dict[str, Any]]:
+    """Cost per hire attributed to the hiring channel.
+
+    Pairs with `cohort_retention(months=12)` to make the point the Loom lands: the most
+    expensive channel and the worst-retaining one are the same channel. Cost per hire and
+    quality of hire disagreeing is the insight; showing either alone is not.
+    """
+    stmt = select(
+        v_source_cost.c.source_id,
+        func.sum(v_source_cost.c.hires).label("hires"),
+        func.sum(cast(v_source_cost.c.attributed_cost, Numeric)).label("total_cost"),
+        func.sum(cast(v_source_cost.c.attributed_external_cost, Numeric)).label("external_cost"),
+    ).group_by(v_source_cost.c.source_id)
+    stmt = apply_filters(stmt, v_source_cost, filters, period_column="opened_quarter")
+    stmt = stmt.order_by(v_source_cost.c.source_id)
+
+    return [
+        {
+            "source_id": row["source_id"],
+            "hires": int(row["hires"] or 0),
+            "total_cost": _num(row["total_cost"]),
+            "external_cost": _num(row["external_cost"]),
+            "cost_per_hire": _ratio(row["total_cost"], row["hires"]),
+        }
+        for row in db.execute(stmt).mappings().all()
+    ]
+
+
 # --- Requisition aging ------------------------------------------------------
 
 
@@ -417,7 +446,9 @@ __all__ = [
     "AGING_THRESHOLD_DAYS",
     "FUNNEL_STAGES",
     "cost_per_hire",
+    "cost_per_hire_by_source",
     "funnel",
+    "offer_acceptance_by_month",
     "offer_acceptance",
     "quality_of_hire",
     "quality_of_hire_by_manager",

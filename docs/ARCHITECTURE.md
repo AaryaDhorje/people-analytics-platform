@@ -576,9 +576,15 @@ the identical error — because the same author wrote both.
   functions are pure.
 - 1,200 employees scored and persisted: 10 low, 663 moderate, 515 elevated, 12 high.
 
-## The API surface (phase 4)
+## The API surface (phase 4, extended in phase 5)
 
-**42 endpoints.** 40 require a bearer token; the two health checks are deliberately open.
+**47 endpoints.** 45 require a bearer token; the two health checks are deliberately open. Five
+were added in phase 5 for chart shapes the pages needed — `time-to-fill/trend`,
+`cost-per-hire/by-source`, `utilization/by-week`, `overtime/trend` and
+`span-of-control/by-level`. Four are backed by a metric function that already existed and was
+already tested but had no route; `cost-per-hire/by-source` needed a new view,
+`24_v_source_cost.sql`, which attributes each requisition's cost proportionally across the
+channels its hires actually came from.
 
 | Concern | Decision |
 |---|---|
@@ -612,6 +618,66 @@ returned HTTP 500 while all 170 tests stayed green, since every one called metri
 directly and none crossed the Pydantic boundary. The suite verified arithmetic thoroughly and
 serialization not at all.
 
+## The dashboard (phase 5)
+
+Five pages — Overview, Retention, Acquisition, Engagement, Productivity — inside one shell, plus
+an `Ask` placeholder that phase 6 fills. ~3,900 lines of TypeScript.
+
+### Data flow
+
+`useMetric(path)` is the only way a component reaches the API. It reads the shared filter state,
+folds it into the TanStack Query key, and returns the typed `Envelope<T>` — so each filter slice
+caches separately and returning to a previously-seen combination is instant rather than a
+refetch. `apiGet` is the single place the envelope is decoded and the only place `fetch` appears.
+
+Filters live in the **URL**, not in React state. A filtered view is therefore a link someone can
+paste into Slack, and the browser back button steps through slices rather than leaving the app.
+
+| Concern | Where it lives | Why there |
+|---|---|---|
+| Loading / error / empty / stale | `components/States.tsx` — one `Async` component | Four states in one place means no page can forget one |
+| Number and date formatting | `lib/format.ts` | `CLAUDE.md`: the API returns raw numbers, the frontend formats them |
+| Axis, grid, tooltip, legend chrome | `components/charts/chrome.tsx` | Shared constants, so two charts cannot disagree about what a gridline looks like |
+| Chart ↔ table toggle | `components/ChartCard.tsx` | Every chart ships a table twin; see below |
+| Colour tokens | `index.css` | Validated once with `validate_palette.js`, never eyeballed |
+
+### Rules the charts follow
+
+- **Every chart has a table-view twin.** Three palette slots sit below 3:1 contrast on white and
+  the relief for that is visible labels or a table view; a value reachable only by hover is
+  unreachable by keyboard and by anyone reading a screenshot; and it is the WCAG-clean equivalent
+  of a colour-encoded scale, which the utilization heatmap and the risk bands both are.
+- **Colour slots key off entity id, never rank.** Filtering one department out must not repaint
+  the survivors.
+- **Ordered categories get a sequential ramp keyed to the category, not to row position.** Only
+  L5 and L6 currently hold reports; a positional ramp painted them the two lightest shades of a
+  six-step scale.
+- **Scales use fixed bands**, so a shade means the same thing under every filter.
+- **Red is reserved.** `--color-risk` marks only "this person is likely to leave", which is why
+  the seven-slot categorical palette had red removed and was re-validated.
+- **No dual axes.** Two units in one frame means two charts.
+- Stale data dims via `placeholderData` rather than collapsing to skeletons, so the layout does
+  not jump on every filter change.
+
+### Two deviations from BUILD_PLAN §5
+
+**Radar → heatmap** for engagement drivers. A radar encodes magnitude as distance from a centre
+(area, not length) and the shape it draws depends on the arbitrary order of its axes — rotate the
+drivers and the same data looks like a different organisation.
+
+**No distinct display face.** A webfont round-trip on a cold Render load delays the first number
+on screen, and display faces on hero figures are a catalogued anti-pattern. One `--font-sans`.
+
+### Where a pre-aggregated denominator has to be re-labelled
+
+`v_span_of_control` is grained by month, so summing its `managers` column yields *manager-months*
+— 1,905 for one department-level pair against a company of ~1,200 people. The ratio to
+report-months is the correct period-weighted span and is what the chart plots; the counts
+themselves are labelled as months rather than as people. The general rule: a sum over a
+time-grained view is an exposure, not a population, and the axis label has to say so.
+
 ## Next
 
-Phase 5 builds the frontend: app shell with URL-backed filters, then one page per domain.
+Phase 6 adds the AI layer: `app/ai/` with NL→SQL against the view allowlist, narrative
+generation, and batch comment classification into `fact_comment_theme` — which is why
+`/api/engagement/themes` is currently the one endpoint returning no rows.
