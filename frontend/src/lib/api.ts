@@ -87,6 +87,29 @@ export interface ManagerAttrition {
   annualized_rate: number | null
 }
 
+/** One manager over a trailing window, already ranked worst-first by the API.
+ *
+ * `window_from`, `window_to`, `months` and `company_annualized_rate` describe the window
+ * rather than the manager and repeat on every row — the same denormalisation
+ * `RequisitionAging.threshold_days` uses, so the response stays a plain list.
+ */
+export interface ManagerAttritionTrailing {
+  manager_id: string
+  department_id: number | null
+  window_from: string
+  window_to: string
+  months: number
+  quarters: number
+  months_observed: number
+  peak_reports: number
+  avg_reports: number
+  terminations: number
+  voluntary_terminations: number
+  headcount_months: number
+  annualized_rate: number | null
+  company_annualized_rate: number | null
+}
+
 export interface TenureBand {
   tenure_band: string
   headcount: number

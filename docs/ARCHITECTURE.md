@@ -578,7 +578,7 @@ the identical error — because the same author wrote both.
 
 ## The API surface (phase 4, extended in phase 5)
 
-**47 endpoints.** 45 require a bearer token; the two health checks are deliberately open. Five
+**48 endpoints.** 46 require a bearer token; the two health checks are deliberately open. Five
 were added in phase 5 for chart shapes the pages needed — `time-to-fill/trend`,
 `cost-per-hire/by-source`, `utilization/by-week`, `overtime/trend` and
 `span-of-control/by-level`. Four are backed by a metric function that already existed and was
@@ -667,6 +667,38 @@ drivers and the same data looks like a different organisation.
 
 **No distinct display face.** A webfont round-trip on a cold Render load delays the first number
 on screen, and display faces on hero figures are a catalogued anti-pattern. One `--font-sans`.
+
+### Ranking is a different metric from reporting
+
+`docs/METRICS.md` defines attrition by manager at quarterly grain, and
+`/attrition/by-manager` serves exactly that. But *ranking* those rows ranks noise: four
+exits from an 8.7-person team in one quarter annualizes to 184%, and the top of the chart
+fills with managers who had one bad three-month stretch. Widening the denominator to a
+year is the only thing that suppresses it.
+
+It also answers the more useful question. A three-year average hides a team that was fine
+for two years and is collapsing now — the shape of the planted bad-manager scenario, whose
+exits all land in the final three quarters. Ranked over the full span that manager is 31st
+of 55; over the trailing year, **2nd of 60, at 2.6× the company rate**.
+
+So `/attrition/by-manager/trailing` is a second endpoint rather than a change to the
+first, and it uses the same trailing-12-month definition `flight_risk` already scores its
+manager-attrition component on — the two features name the same managers instead of
+contradicting each other. Independently of the attrition metric, the risk model puts all
+eight of that manager's remaining reports in `elevated` against a 43% company base rate.
+
+Two details that decide whether the number is honest:
+
+- **The floor is applied after aggregating**, to the window's average team size. Filtering
+  quarters first would discard the months a shrinking team spent below the line — which is
+  exactly when its people were leaving — and flatter the failing manager.
+- **The window anchors to the latest quarter in the data**, never to `date.today()`. The
+  warehouse covers a fixed span; a clock-anchored window empties the card the day after
+  the demo.
+
+Every row carries `company_annualized_rate` for the same window, because a rate without a
+baseline is unreadable — 68% is alarming or ordinary entirely depending on what everyone
+else is doing.
 
 ### Where a pre-aggregated denominator has to be re-labelled
 

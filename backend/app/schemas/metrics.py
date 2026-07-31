@@ -91,6 +91,31 @@ class ManagerAttrition(MetricModel):
     annualized_rate: float | None
 
 
+class ManagerAttritionTrailing(MetricModel):
+    """One manager over a trailing window, rather than one manager-quarter.
+
+    `window_from`, `window_to`, `months` and `company_annualized_rate` repeat on every row.
+    That is deliberate and follows `RequisitionAging.threshold_days`: a rate is unreadable
+    without the window it covers and the baseline it beats, and putting them beside the
+    number keeps the list shape — and so the table view — unchanged.
+    """
+
+    manager_id: str
+    department_id: int | None
+    window_from: date
+    window_to: date
+    months: int
+    quarters: int
+    months_observed: int
+    peak_reports: int
+    avg_reports: float
+    terminations: int
+    voluntary_terminations: int
+    headcount_months: float
+    annualized_rate: float | None
+    company_annualized_rate: float | None
+
+
 class Mobility(MetricModel):
     promotions: int
     lateral_transfers: int

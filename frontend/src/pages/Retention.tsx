@@ -31,15 +31,15 @@ import { useMetric } from '@/hooks/useMetric'
 import type {
   AttritionPoint,
   FlightRisk,
-  ManagerAttrition,
+  ManagerAttritionTrailing,
   SurvivalPoint,
   TenureBand,
 } from '@/lib/api'
 import {
+  EMPTY,
   formatCount,
   formatDecimal,
   formatMonth,
-  formatQuarter,
   formatRate,
 } from '@/lib/format'
 
@@ -463,6 +463,10 @@ function heatStep(rate: number | null): { bg: string; fg: string } {
   return { bg: 'var(--color-seq-700)', fg: '#ffffff' }
 }
 
+/** The scroll box holds about this many rows before the cut. Sixty managers clear the
+ *  floor; the rest are one click away in the table view. */
+const MANAGERS_SHOWN = 40
+
 const HEAT_LEGEND = [
   { label: '<15%', bg: 'var(--color-seq-100)' },
   { label: '15–30%', bg: 'var(--color-seq-250)' },
@@ -471,8 +475,19 @@ const HEAT_LEGEND = [
   { label: '75%+', bg: 'var(--color-seq-700)' },
 ]
 
+/** Managers ranked over a trailing year, not per quarter.
+ *
+ * The quarterly grain is what docs/METRICS.md defines and it is still the API's default,
+ * but *ranking* those rows ranks noise: four exits from an 8.7-person team in one quarter
+ * annualizes to 184% and takes the top of the chart, while a team that has been losing
+ * people all year sits below it. A year-long denominator is the only thing that actually
+ * suppresses that, and it is the definition the flight-risk score already uses — so the
+ * two features name the same managers instead of contradicting each other.
+ */
 function ManagerHeatmap() {
-  const query = useMetric<ManagerAttrition[]>('/api/retention/attrition/by-manager')
+  const query = useMetric<ManagerAttritionTrailing[]>(
+    '/api/retention/attrition/by-manager/trailing',
+  )
 
   return (
     <Async
@@ -480,25 +495,47 @@ function ManagerHeatmap() {
       skeleton={<Card><ChartSkeleton /></Card>}
       empty={{
         title: 'No managers clear the reporting threshold',
-        hint: 'Attrition by manager is only reported for teams averaging at least 8 reports, because a rate over four people is noise.',
+        hint: 'Only teams averaging at least 8 reports across the window are reported, because an attrition rate over four people is noise dressed as signal.',
       }}
     >
       {(envelope) => {
-        const rows = [...envelope.data].sort(
-          (a, b) => (b.annualized_rate ?? 0) - (a.annualized_rate ?? 0),
-        )
+        // The endpoint already ranks worst-first, so the first row is the headline.
+        const rows = envelope.data
         const worst = rows[0]
+        const companyRate = worst?.company_annualized_rate ?? null
+        const windowLabel = worst
+          ? `${formatMonth(worst.window_from)} – ${formatMonth(worst.window_to)}`
+          : ''
+
+        /** How many times the company rate. The number that makes a rate mean something:
+         *  67% is alarming or ordinary depending entirely on what everyone else is doing. */
+        const versusCompany = (rate: number | null): number | null =>
+          rate == null || !companyRate ? null : rate / companyRate
 
         return (
           <ChartCard
             title="Attrition by manager"
-            subtitle="Quarterly, for teams averaging at least eight reports."
+            subtitle={`Trailing 12 months (${windowLabel}), for teams averaging at least eight reports.`}
             stat={
               worst ? (
-                <ChartStat
-                  value={formatRate(worst.annualized_rate)}
-                  label={`highest — ${worst.manager_id}, ${formatQuarter(worst.period)}`}
-                />
+                <div className="flex flex-wrap items-end gap-x-10 gap-y-3">
+                  <ChartStat
+                    value={formatRate(worst.annualized_rate)}
+                    label={`highest — ${worst.manager_id}, ${DEPARTMENTS[worst.department_id ?? 0] ?? 'unknown team'}`}
+                  />
+                  <ChartStat
+                    value={formatRate(companyRate)}
+                    label="company, same window"
+                  />
+                  <ChartStat
+                    value={
+                      versusCompany(worst.annualized_rate) == null
+                        ? EMPTY
+                        : `${formatDecimal(versusCompany(worst.annualized_rate))}×`
+                    }
+                    label="the company rate"
+                  />
+                </div>
               ) : undefined
             }
             legend={
@@ -516,62 +553,66 @@ function ManagerHeatmap() {
                 ))}
               </div>
             }
-            footnote="The colour scale uses fixed bands, not quantiles of the current filter — so a manager's shade means the same thing whichever slice you are looking at. Rate alone favours small teams; read it beside the report count."
+            footnote="Ranked over a year rather than a quarter: a quarter's denominator is small enough that one bad three-month stretch outranks a team that has been losing people all year. The colour scale uses fixed bands, not quantiles of the current filter, so a manager's shade means the same thing whichever slice you are looking at. Read the rate beside the exit count — the eight-report floor suppresses the worst of the small-team artefacts, not all of them."
             chart={
-              // A bare `overflow-y-auto` clips the final row through its middle, which in a
-              // screenshot or a recording reads as a rendering fault rather than as "there
-              // is more below". Sticky header, an explicit count, and a fade at the cut make
-              // the boundary intentional.
               <div>
                 <div className="relative">
                   <div className="max-h-[26rem] overflow-y-auto">
-                  <DataTable
-                    stickyHeader
-                    rows={rows.slice(0, 40)}
-                    rowKey={(row) => `${row.period}-${row.manager_id}`}
-                    columns={[
-                      { key: 'mgr', header: 'Manager', render: (row) => row.manager_id },
-                      {
-                        key: 'dept',
-                        header: 'Department',
-                        render: (row) => DEPARTMENTS[row.department_id ?? 0] ?? '—',
-                      },
-                      { key: 'q', header: 'Quarter', render: (row) => formatQuarter(row.period) },
-                      {
-                        key: 'reports',
-                        header: 'Avg team',
-                        align: 'right',
-                        render: (row) => formatDecimal(row.avg_reports),
-                      },
-                      {
-                        key: 'exits',
-                        header: 'Exits',
-                        align: 'right',
-                        render: (row) => formatCount(row.terminations),
-                      },
-                      {
-                        key: 'rate',
-                        header: 'Annualized',
-                        align: 'right',
-                        render: (row) => {
-                          const step = heatStep(row.annualized_rate)
-                          return (
-                            <span
-                              className="tnum inline-block min-w-[4.5rem] rounded px-2 py-0.5 text-right font-medium"
-                              style={{ backgroundColor: step.bg, color: step.fg }}
-                            >
-                              {formatRate(row.annualized_rate)}
-                            </span>
-                          )
+                    <DataTable
+                      stickyHeader
+                      rows={rows.slice(0, MANAGERS_SHOWN)}
+                      rowKey={(row) => row.manager_id}
+                      columns={[
+                        { key: 'mgr', header: 'Manager', render: (row) => row.manager_id },
+                        {
+                          key: 'dept',
+                          header: 'Department',
+                          render: (row) => DEPARTMENTS[row.department_id ?? 0] ?? '—',
                         },
-                      },
-                    ]}
+                        {
+                          key: 'reports',
+                          header: 'Avg team',
+                          align: 'right',
+                          render: (row) => formatDecimal(row.avg_reports),
+                        },
+                        {
+                          key: 'exits',
+                          header: 'Exits',
+                          align: 'right',
+                          render: (row) => formatCount(row.terminations),
+                        },
+                        {
+                          key: 'vs',
+                          header: 'vs company',
+                          align: 'right',
+                          render: (row) => {
+                            const ratio = versusCompany(row.annualized_rate)
+                            return ratio == null ? EMPTY : `${formatDecimal(ratio)}×`
+                          },
+                        },
+                        {
+                          key: 'rate',
+                          header: 'Annualized',
+                          align: 'right',
+                          render: (row) => {
+                            const step = heatStep(row.annualized_rate)
+                            return (
+                              <span
+                                className="tnum inline-block min-w-[4.5rem] rounded px-2 py-0.5 text-right font-medium"
+                                style={{ backgroundColor: step.bg, color: step.fg }}
+                              >
+                                {formatRate(row.annualized_rate)}
+                              </span>
+                            )
+                          },
+                        },
+                      ]}
                     />
                   </div>
 
                   {/* The fade belongs to the scroll box, not to the card. Hung on the outer
                       wrapper it covered the caption below instead of the cut edge above. */}
-                  {rows.length > 40 && (
+                  {rows.length > MANAGERS_SHOWN && (
                     <div
                       aria-hidden="true"
                       className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent"
@@ -580,15 +621,16 @@ function ManagerHeatmap() {
                 </div>
 
                 <p className="mt-2 font-sans text-xs text-ink-500">
-                  Showing the {Math.min(40, rows.length)} highest of {formatCount(rows.length)}{' '}
-                  manager-quarters. Switch to Table for all of them.
+                  Showing the {Math.min(MANAGERS_SHOWN, rows.length)} worst of{' '}
+                  {formatCount(rows.length)} managers above the floor. Switch to Table for all
+                  of them.
                 </p>
               </div>
             }
             table={
               <DataTable
                 rows={rows}
-                rowKey={(row) => `${row.period}-${row.manager_id}-t`}
+                rowKey={(row) => `${row.manager_id}-t`}
                 columns={[
                   { key: 'mgr', header: 'Manager', render: (row) => row.manager_id },
                   {
@@ -596,18 +638,23 @@ function ManagerHeatmap() {
                     header: 'Department',
                     render: (row) => DEPARTMENTS[row.department_id ?? 0] ?? '—',
                   },
-                  { key: 'q', header: 'Quarter', render: (row) => formatQuarter(row.period) },
                   {
-                    key: 'reports',
-                    header: 'Distinct reports',
+                    key: 'peak',
+                    header: 'Peak team',
                     align: 'right',
-                    render: (row) => formatCount(row.reports),
+                    render: (row) => formatCount(row.peak_reports),
                   },
                   {
                     key: 'avg',
                     header: 'Avg team',
                     align: 'right',
                     render: (row) => formatDecimal(row.avg_reports),
+                  },
+                  {
+                    key: 'hm',
+                    header: 'Headcount-months',
+                    align: 'right',
+                    render: (row) => formatDecimal(row.headcount_months),
                   },
                   {
                     key: 'exits',
@@ -626,6 +673,15 @@ function ManagerHeatmap() {
                     header: 'Annualized',
                     align: 'right',
                     render: (row) => formatRate(row.annualized_rate),
+                  },
+                  {
+                    key: 'vs',
+                    header: 'vs company',
+                    align: 'right',
+                    render: (row) => {
+                      const ratio = versusCompany(row.annualized_rate)
+                      return ratio == null ? EMPTY : `${formatDecimal(ratio)}×`
+                    },
                   },
                 ]}
               />

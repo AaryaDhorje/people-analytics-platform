@@ -22,6 +22,7 @@ and validate at the route boundary; keeping the metric layer free of them means 
 can assert on a number without constructing a model.
 """
 
+from datetime import date
 from typing import Any
 
 from sqlalchemy import Numeric, Select, cast, func, select
@@ -36,9 +37,17 @@ from app.metrics.tables import (
     v_regretted_exits,
     v_tenure_band_monthly,
 )
+from seed.util import add_months
 
 #: docs/METRICS.md: "Attrition rate where manager_id = X, min 8 reports".
 MIN_REPORTS_FOR_MANAGER_ATTRITION = 8
+
+#: Window for ranking managers against each other. Twelve months because a quarter's
+#: denominator is small enough that one bad stretch outranks a genuinely failing team, and
+#: because `flight_risk` already scores its manager-attrition component on a trailing year
+#: — two features disagreeing about who is in trouble is worse than either being slightly
+#: off.
+TRAILING_MONTHS_FOR_MANAGER_RANKING = 12
 
 
 def _num(value: Any) -> float | None:
@@ -368,6 +377,115 @@ def attrition_by_manager(
         }
         for row in rows
     ]
+
+
+def attrition_by_manager_trailing(
+    db: Session,
+    filters: MetricFilters,
+    *,
+    months: int = TRAILING_MONTHS_FOR_MANAGER_RANKING,
+    min_reports: int = MIN_REPORTS_FOR_MANAGER_ATTRITION,
+) -> list[dict[str, Any]]:
+    """One row per manager, aggregated over a trailing window, worst rate first.
+
+    `attrition_by_manager` is grained by (quarter, manager) because that is what
+    docs/METRICS.md defines and what a heatmap over time needs. Ranking those rows,
+    however, ranks *noise*: four exits from an 8.7-person team in a single quarter
+    annualizes to 184%, and the top of the list fills with managers who had one bad
+    three-month stretch. Widening to a year roughly quadruples every denominator, which is
+    the only thing that actually suppresses small-sample rate inflation.
+
+    It also answers the more useful question. A three-year average hides a team that was
+    fine for two years and is collapsing now — precisely the shape of the planted
+    bad-manager scenario, whose exits all fall in the final three quarters. Over the full
+    span that manager ranks 31st of 55; over the trailing year, 2nd.
+
+    Deliberately the same definition `flight_risk` uses for its manager-attrition
+    component, so the two features cannot disagree about who is in trouble.
+
+    The window anchors to the latest quarter **in the data**, not to `date.today()`. The
+    warehouse covers a fixed span, and a clock-anchored window empties the card the day
+    after the demo.
+    """
+    anchor_stmt = select(func.max(v_manager_attrition_quarterly.c.quarter_start))
+    anchor_stmt = apply_filters(
+        anchor_stmt, v_manager_attrition_quarterly, filters, period_column="quarter_start"
+    )
+    anchor: date | None = db.execute(anchor_stmt).scalar_one_or_none()
+    if anchor is None:
+        return []
+
+    # Exclusive lower bound: with a 12-month window and quarterly grain this admits the
+    # four quarters ending at the anchor, which is 12 months of coverage.
+    window_from = add_months(anchor, -months)
+
+    stmt = select(
+        v_manager_attrition_quarterly.c.manager_id,
+        func.max(v_manager_attrition_quarterly.c.department_id).label("department_id"),
+        func.min(v_manager_attrition_quarterly.c.quarter_start).label("window_from"),
+        func.count().label("quarters"),
+        func.sum(v_manager_attrition_quarterly.c.months_observed).label("months_observed"),
+        func.sum(v_manager_attrition_quarterly.c.terminations).label("terminations"),
+        func.sum(v_manager_attrition_quarterly.c.voluntary_terminations).label(
+            "voluntary_terminations"
+        ),
+        func.sum(v_manager_attrition_quarterly.c.headcount_months).label("headcount_months"),
+        func.max(v_manager_attrition_quarterly.c.reports).label("peak_reports"),
+    ).where(v_manager_attrition_quarterly.c.quarter_start > window_from)
+    stmt = apply_filters(
+        stmt, v_manager_attrition_quarterly, filters, period_column="quarter_start"
+    )
+    stmt = stmt.group_by(v_manager_attrition_quarterly.c.manager_id)
+
+    rows = db.execute(stmt).mappings().all()
+    if not rows:
+        return []
+
+    # The baseline covers every managed employee in the window, including the small teams
+    # the floor suppresses below — they are still part of the company, and excluding them
+    # would compare each manager against a population that excludes their own peers.
+    company_rate = _annualized(
+        sum(int(row["terminations"] or 0) for row in rows),
+        sum(_num(row["headcount_months"]) for row in rows),
+    )
+    window_to = anchor
+    earliest = min(row["window_from"] for row in rows)
+
+    ranked: list[dict[str, Any]] = []
+    for row in rows:
+        headcount_months = _num(row["headcount_months"])
+        observed = int(row["months_observed"] or 0)
+        # The floor applies to the window average, not to any single quarter. Filtering
+        # quarters first would discard the months a shrinking team spent below the line —
+        # flattering exactly the manager whose team is collapsing.
+        avg_reports = headcount_months / observed if observed else 0.0
+        if avg_reports < min_reports:
+            continue
+        ranked.append(
+            {
+                "manager_id": row["manager_id"],
+                "department_id": row["department_id"],
+                "window_from": earliest,
+                "window_to": window_to,
+                "months": months,
+                "quarters": int(row["quarters"] or 0),
+                "months_observed": observed,
+                "peak_reports": int(row["peak_reports"] or 0),
+                "avg_reports": avg_reports,
+                "terminations": int(row["terminations"] or 0),
+                "voluntary_terminations": int(row["voluntary_terminations"] or 0),
+                "headcount_months": headcount_months,
+                "annualized_rate": _annualized(row["terminations"], headcount_months),
+                "company_annualized_rate": company_rate,
+            }
+        )
+
+    # Worst first, then by exits so two managers on the same rate are separated by the one
+    # carrying more people out of the door. Manager id last, to keep the order stable.
+    ranked.sort(
+        key=lambda r: (-(r["annualized_rate"] or 0.0), -r["terminations"], r["manager_id"])
+    )
+    return ranked
 
 
 # --- Internal mobility ------------------------------------------------------

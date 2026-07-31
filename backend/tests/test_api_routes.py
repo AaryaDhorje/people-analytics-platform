@@ -35,6 +35,7 @@ METRIC_PATHS: tuple[str, ...] = (
     "/api/retention/attrition/total",
     "/api/retention/attrition/regretted",
     "/api/retention/attrition/by-manager?min_reports=1",
+    "/api/retention/attrition/by-manager/trailing?min_reports=1",
     "/api/retention/tenure",
     "/api/retention/cohort-retention",
     "/api/retention/cohort-survival",

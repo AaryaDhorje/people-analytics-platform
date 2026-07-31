@@ -19,6 +19,7 @@ from app.schemas.metrics import (
     CohortRetention,
     HeadcountPoint,
     ManagerAttrition,
+    ManagerAttritionTrailing,
     Mobility,
     MobilityYear,
     RegrettedAttrition,
@@ -71,6 +72,36 @@ def attrition_by_manager(
     """Annualized attrition per manager per quarter, above an average-span floor."""
     data = retention.attrition_by_manager(db, filters, min_reports=min_reports)
     return envelope(data, filters_applied={**filters.as_dict(), "min_reports": min_reports})
+
+
+@router.get(
+    "/attrition/by-manager/trailing",
+    response_model=Envelope[list[ManagerAttritionTrailing]],
+)
+def attrition_by_manager_trailing(
+    db: Db,
+    filters: Filters,
+    months: Annotated[
+        int, Query(ge=3, le=60, description="Length of the trailing window, in months")
+    ] = retention.TRAILING_MONTHS_FOR_MANAGER_RANKING,
+    min_reports: Annotated[
+        int, Query(ge=1, le=100, description="Floor on AVERAGE team size over the window")
+    ] = retention.MIN_REPORTS_FOR_MANAGER_ATTRITION,
+) -> Envelope[list[ManagerAttritionTrailing]]:
+    """Managers ranked worst-first over a trailing window, with a company baseline.
+
+    `/attrition/by-manager` is the per-quarter series; this is the ranking. Ranking the
+    quarterly rows instead puts a single bad three-month stretch above a team that has been
+    losing people all year, because a quarter's denominator is small enough for one exit to
+    move the rate double digits.
+    """
+    data = retention.attrition_by_manager_trailing(
+        db, filters, months=months, min_reports=min_reports
+    )
+    return envelope(
+        data,
+        filters_applied={**filters.as_dict(), "months": months, "min_reports": min_reports},
+    )
 
 
 @router.get("/tenure", response_model=Envelope[list[TenureBand]])

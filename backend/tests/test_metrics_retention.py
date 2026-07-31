@@ -306,6 +306,113 @@ def test_attrition_by_manager_returns_one_row_per_manager_per_quarter(db: Sessio
     assert len(keys) == len(set(keys))
 
 
+# --- Attrition by manager, trailing window ----------------------------------
+#
+# The quarterly grain answers "which manager-quarter was worst", and on three years of
+# real data the answer is always a small team having one bad quarter: 4 exits from an
+# 8.7-person team annualizes to 184%, which is arithmetic, not a management problem. This
+# ranking answers the question a reader actually has — "whose team is bleeding *now*" —
+# by widening the denominator to a year. It is the same definition `flight_risk` already
+# uses for its manager-attrition component, so the two agree by construction.
+
+#: tiny_org's last quarter is 2025-04-01, so a 12-month window covers the four quarters
+#: 2024-07, 2024-10, 2025-01 and 2025-04.
+_TRAILING_WINDOW_QUARTERS = (
+    date(2024, 7, 1),
+    date(2024, 10, 1),
+    date(2025, 1, 1),
+    date(2025, 4, 1),
+)
+
+
+def test_manager_trailing_window_anchors_to_the_data_not_the_clock(db: Session) -> None:
+    """tiny_org ends in June 2025. Anchored to `today` the window would be empty and the
+    card would render blank — the same trap the overview hit in phase 4."""
+    rows = retention.attrition_by_manager_trailing(db, WINDOW, min_reports=1)
+
+    assert rows, "expected managers in the trailing window"
+    assert rows[0]["window_to"] == _TRAILING_WINDOW_QUARTERS[-1]
+    assert rows[0]["window_from"] == _TRAILING_WINDOW_QUARTERS[0]
+    assert {row["months"] for row in rows} == {12}
+    assert {row["quarters"] for row in rows} == {len(_TRAILING_WINDOW_QUARTERS)}
+
+
+def test_manager_trailing_window_returns_one_row_per_manager(db: Session) -> None:
+    """The whole point of the aggregation: the quarterly endpoint returns a manager once
+    per quarter, this one returns each manager exactly once."""
+    ids = [
+        row["manager_id"]
+        for row in retention.attrition_by_manager_trailing(db, WINDOW, min_reports=1)
+    ]
+
+    assert len(ids) == len(set(ids))
+
+
+def test_manager_trailing_window_aggregates_quarters_before_dividing(db: Session) -> None:
+    """M-901 across the four quarters in the window:
+
+        2024-07  headcount_months 20.0, 0 exits
+        2024-10  headcount_months 16.5, 1 exit   (E-004 left 15 Nov)
+        2025-01  headcount_months 15.0, 0 exits
+        2025-04  headcount_months 15.0, 0 exits
+
+        headcount_months = 66.5 over 12 observed months
+        avg_reports      = 66.5 / 12 = 5.5416666...
+        annualized       = 1 * 12 / 66.5 = 0.1804511...
+
+    Note this is far below the 72.7% that same exit produces at quarterly grain. Both are
+    correct; only one of them describes the team.
+    """
+    rows = retention.attrition_by_manager_trailing(db, WINDOW, min_reports=1)
+    by_manager = {row["manager_id"]: row for row in rows}
+
+    m901 = by_manager["M-901"]
+    assert m901["terminations"] == 1
+    assert m901["voluntary_terminations"] == 1
+    assert m901["months_observed"] == 12
+    assert m901["headcount_months"] == pytest.approx(66.5)
+    assert m901["avg_reports"] == pytest.approx(66.5 / 12)
+    assert m901["annualized_rate"] == pytest.approx(12 / 66.5)
+
+
+def test_manager_trailing_window_ranks_worst_first(db: Session) -> None:
+    """M-902: headcount_months 6.0 + 9.0 + 9.0 + 6.0 = 30.0, 1 exit -> 12 / 30 = 0.4,
+    which is worse than M-901's 0.1805, so it leads. D-900 has no exits and comes last."""
+    rows = retention.attrition_by_manager_trailing(db, WINDOW, min_reports=1)
+
+    assert [row["manager_id"] for row in rows] == ["M-902", "M-901", "D-900"]
+    assert rows[0]["annualized_rate"] == pytest.approx(12 / 30.0)
+    assert rows[-1]["annualized_rate"] == pytest.approx(0.0)
+
+
+def test_manager_trailing_window_carries_the_company_rate_for_comparison(db: Session) -> None:
+    """A manager's rate means nothing without the baseline beside it. The baseline covers
+    every managed employee in the same window with no report floor, so it is not skewed by
+    the very filter that selects the managers shown:
+
+        exits            = 1 (M-901) + 1 (M-902) + 0 (D-900) = 2
+        headcount_months = 66.5 + 30.0 + 24.0 = 120.5
+        company rate     = 2 * 12 / 120.5 = 0.1991701...
+    """
+    rows = retention.attrition_by_manager_trailing(db, WINDOW, min_reports=1)
+
+    assert rows[0]["company_annualized_rate"] == pytest.approx(24 / 120.5)
+    # Identical on every row: it describes the window, not the manager.
+    assert len({row["company_annualized_rate"] for row in rows}) == 1
+
+
+def test_manager_trailing_window_applies_the_floor_to_the_window_average(db: Session) -> None:
+    """The floor must be applied *after* aggregating, to the window's average team size.
+    Applied per quarter first it would drop the quarters in which a failing team shrank —
+    which is exactly when its people were leaving — and flatter the manager."""
+    assert retention.attrition_by_manager_trailing(db, WINDOW) == []
+
+    lowered = retention.attrition_by_manager_trailing(db, WINDOW, min_reports=3)
+
+    # M-901 averages 5.54 and clears 3; M-902 averages 2.5 and D-900 averages 2.0.
+    assert [row["manager_id"] for row in lowered] == ["M-901"]
+
+
 # --- Internal mobility -----------------------------------------------------
 
 
