@@ -189,6 +189,27 @@ def offer_acceptance(db: Session, filters: MetricFilters) -> dict[str, Any]:
     }
 
 
+def offer_acceptance_by_month(db: Session, filters: MetricFilters) -> list[dict[str, Any]]:
+    """Acceptance rate per month, for the overview sparkline."""
+    stmt = select(
+        v_application_outcomes.c.applied_month.label("period"),
+        func.sum(v_application_outcomes.c.offers_extended).label("offers_extended"),
+        func.sum(v_application_outcomes.c.offers_accepted).label("offers_accepted"),
+    ).group_by(v_application_outcomes.c.applied_month)
+    stmt = apply_filters(stmt, v_application_outcomes, filters, period_column="applied_month")
+    stmt = stmt.order_by(v_application_outcomes.c.applied_month)
+
+    return [
+        {
+            "period": row["period"],
+            "offers_extended": int(row["offers_extended"] or 0),
+            "offers_accepted": int(row["offers_accepted"] or 0),
+            "acceptance_rate": _ratio(row["offers_accepted"], row["offers_extended"]),
+        }
+        for row in db.execute(stmt).mappings().all()
+    ]
+
+
 # --- Cost per hire ----------------------------------------------------------
 
 

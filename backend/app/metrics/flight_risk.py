@@ -19,11 +19,12 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
+from app.metrics.filters import MetricFilters
 from app.metrics.tables import v_flight_risk_inputs
-from app.models import FactFlightRiskScore
+from app.models import DimEmployee, FactFlightRiskScore
 from app.models.enums import RiskBand
 
 #: Weights sum to exactly 1.0 — asserted by a test, because a drifting total silently
@@ -253,19 +254,57 @@ def persist(db: Session, scores: list[RiskScore]) -> int:
     return len(scores)
 
 
+def _scoped(stmt: Any, filters: MetricFilters) -> Any:
+    """Apply the shared filter contract by joining the employee dimension.
+
+    Hand-rolled rather than routed through `apply_filters`, because that helper takes a
+    single table and these dimensions live on `dim_employee` rather than on the score
+    table. Every filter in the shared contract is honoured, so none is silently dropped —
+    which is the property that matters, not the mechanism.
+
+    `dim_employee` holds *current* state, which is the right source here: scores are
+    computed as of the latest month, so current department and manager are the as-of
+    values.
+    """
+    stmt = stmt.join(DimEmployee, DimEmployee.employee_id == FactFlightRiskScore.employee_id)
+
+    if filters.date_from is not None:
+        stmt = stmt.where(FactFlightRiskScore.as_of_month >= filters.date_from)
+    if filters.date_to is not None:
+        stmt = stmt.where(FactFlightRiskScore.as_of_month <= filters.date_to)
+    if filters.department_id is not None:
+        stmt = stmt.where(DimEmployee.department_id == filters.department_id)
+    if filters.location_id is not None:
+        stmt = stmt.where(DimEmployee.location_id == filters.location_id)
+    if filters.level is not None:
+        stmt = stmt.where(DimEmployee.job_level_id == filters.level)
+    if filters.manager_id is not None:
+        stmt = stmt.where(DimEmployee.manager_id == filters.manager_id)
+    return stmt
+
+
 def top_risks(
-    db: Session, *, limit: int = 25, band: RiskBand | None = None
+    db: Session,
+    filters: MetricFilters | None = None,
+    *,
+    limit: int = 25,
+    band: RiskBand | None = None,
 ) -> list[dict[str, Any]]:
     """Highest scores first, read from the stored table.
 
     Reads the persisted scores rather than recomputing, so the dashboard cannot be slowed
     by a full rescore on every page load, and so the numbers on screen match the ones the
     narrative in phase 6 was generated from.
+
+    Filtering by `manager_id` is the demo's move: it turns "who is at risk" into "who is
+    at risk on this manager's team", which is how the heatmap and the risk table get
+    connected on camera.
     """
-    stmt = select(FactFlightRiskScore).order_by(FactFlightRiskScore.score.desc())
+    stmt = select(FactFlightRiskScore)
+    stmt = _scoped(stmt, filters or MetricFilters())
     if band is not None:
         stmt = stmt.where(FactFlightRiskScore.band == band)
-    stmt = stmt.limit(limit)
+    stmt = stmt.order_by(FactFlightRiskScore.score.desc()).limit(limit)
 
     return [
         {
@@ -279,15 +318,12 @@ def top_risks(
     ]
 
 
-def band_summary(db: Session) -> list[dict[str, Any]]:
+def band_summary(db: Session, filters: MetricFilters | None = None) -> list[dict[str, Any]]:
     """Population per risk band, for the KPI row."""
-    from sqlalchemy import func
+    stmt = select(FactFlightRiskScore.band, func.count().label("employees"))
+    stmt = _scoped(stmt, filters or MetricFilters())
+    stmt = stmt.group_by(FactFlightRiskScore.band).order_by(FactFlightRiskScore.band)
 
-    stmt = (
-        select(FactFlightRiskScore.band, func.count().label("employees"))
-        .group_by(FactFlightRiskScore.band)
-        .order_by(FactFlightRiskScore.band)
-    )
     return [
         {"band": row["band"].value, "employees": int(row["employees"])}
         for row in db.execute(stmt).mappings().all()

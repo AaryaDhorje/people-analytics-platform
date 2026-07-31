@@ -186,6 +186,31 @@ def regretted_attrition(db: Session, filters: MetricFilters) -> dict[str, Any]:
     }
 
 
+def regretted_attrition_trend(db: Session, filters: MetricFilters) -> list[dict[str, Any]]:
+    """Regretted share per month, for the overview sparkline.
+
+    Months with no voluntary exits yield None rather than 0 — the share is undefined,
+    and a zero would draw a line at the bottom of the chart implying nobody good left.
+    """
+    stmt = select(
+        v_regretted_exits.c.month_start.label("period"),
+        func.sum(v_regretted_exits.c.voluntary_exits).label("voluntary_exits"),
+        func.sum(v_regretted_exits.c.regretted_exits).label("regretted_exits"),
+    ).group_by(v_regretted_exits.c.month_start)
+    stmt = apply_filters(stmt, v_regretted_exits, filters, period_column="month_start")
+    stmt = stmt.order_by(v_regretted_exits.c.month_start)
+
+    return [
+        {
+            "period": row["period"],
+            "voluntary_exits": int(row["voluntary_exits"] or 0),
+            "regretted_exits": int(row["regretted_exits"] or 0),
+            "regretted_share": _ratio(row["regretted_exits"], row["voluntary_exits"]),
+        }
+        for row in db.execute(stmt).mappings().all()
+    ]
+
+
 # --- Tenure -----------------------------------------------------------------
 
 

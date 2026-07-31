@@ -1,6 +1,6 @@
 # Architecture
 
-Updated at the end of each phase. **Current state: phase 3 (metrics layer) complete.**
+Updated at the end of each phase. **Current state: phase 4 (API surface) complete.**
 
 ## System shape
 
@@ -576,13 +576,42 @@ the identical error — because the same author wrote both.
   functions are pure.
 - 1,200 employees scored and persisted: 10 low, 663 moderate, 515 elevated, 12 high.
 
-### Known gap
+## The API surface (phase 4)
 
-Tests call metric functions directly and never cross the Pydantic boundary, so a response-model
-mismatch reached a live endpoint as an HTTP 500 with a green suite. Phase 4 should add
-route-level tests through `TestClient`.
+**42 endpoints.** 40 require a bearer token; the two health checks are deliberately open.
+
+| Concern | Decision |
+|---|---|
+| Auth | Attached at **router registration**, not per route, so a new endpoint cannot ship unprotected by omission |
+| `/health` | Unauthenticated — Render polls it during cold start and a 401 fails the deploy |
+| Token check | `secrets.compare_digest`; `==` on a secret leaks length and prefix through timing |
+| CORS | Exact origins **plus** `allow_origin_regex`, because Vercel preview deployments each get a unique hostname |
+| Unsupported filter | HTTP 400 with the offending filter named — never a silent 200 for a slice nobody asked for |
+| Response models | `extra="forbid"`, so an undeclared key fails loudly rather than being dropped |
+
+**`/api/overview` returns eight KPIs in one request**, weighted toward Retention (four of the
+eight), because that is the domain the plan says to go deep on. Each card carries a value, the
+preceding equal-length period, a delta, a sparkline, and `higher_is_better` as a **three-valued**
+field — headcount is genuinely directionless, and a green up-arrow on rising attrition asserts
+something false.
+
+Two subtleties the overview has to respect:
+
+- **Periods anchor to the data's latest month, not to the wall clock.** The warehouse covers a
+  fixed window; anchoring to `today` would empty every card the moment the demo ran on a later
+  date.
+- **Quarterly metrics compare latest reading against the previous reading**, not window against
+  window. eNPS and revenue per FTE are quarterly, and a three-month window routinely contains no
+  survey at all — which rendered the eNPS card blank before this was fixed.
+
+### Testing at the HTTP boundary
+
+`tests/test_api_routes.py` runs the real app against `tiny_org` through `TestClient`. It exists
+because phase 3 shipped a response model requiring a field the data did not have: the endpoint
+returned HTTP 500 while all 170 tests stayed green, since every one called metric functions
+directly and none crossed the Pydantic boundary. The suite verified arithmetic thoroughly and
+serialization not at all.
 
 ## Next
 
-Phase 4 completes the API surface: demo bearer-token auth, CORS for the Vercel origin, and
-`/api/overview` returning the eight headline KPIs in a single call.
+Phase 5 builds the frontend: app shell with URL-backed filters, then one page per domain.

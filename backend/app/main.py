@@ -14,9 +14,11 @@ from app.api.routes import (
     engagement,
     flight_risk,
     health,
+    overview,
     productivity,
     retention,
 )
+from app.auth import DemoAuth
 from app.config import settings
 from app.metrics.filters import UnsupportedFilterError
 
@@ -32,6 +34,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    # Vercel gives every preview deployment its own hostname, so an exact-match list can
+    # only ever cover production. Without this, the first preview build fails CORS and
+    # looks like a backend outage.
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
@@ -56,12 +62,22 @@ def unsupported_filter(_: Request, exc: UnsupportedFilterError) -> JSONResponse:
     )
 
 
+# /health is deliberately unauthenticated: Render polls it during cold start and a 401
+# would fail the deployment, and the frontend uses it to tell "still waking up" apart
+# from "rejected me".
 app.include_router(health.router)
-app.include_router(retention.router)
-app.include_router(acquisition.router)
-app.include_router(engagement.router)
-app.include_router(productivity.router)
-app.include_router(flight_risk.router)
+
+# Auth is attached at registration rather than per-route, so a new endpoint cannot ship
+# unprotected by someone forgetting a decorator.
+for metric_router in (
+    overview.router,
+    retention.router,
+    acquisition.router,
+    engagement.router,
+    productivity.router,
+    flight_risk.router,
+):
+    app.include_router(metric_router, dependencies=[DemoAuth])
 
 
 @app.get("/", include_in_schema=False)

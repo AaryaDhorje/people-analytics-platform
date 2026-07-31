@@ -291,3 +291,62 @@ empty is `/api/engagement/themes`, correct until phase 6 fills `fact_comment_the
 **Blockers.** None for phase 4. Three open items: the route-level test gap above;
 `ANTHROPIC_API_KEY` still empty; and **no git remote exists** — Render and Vercel both deploy
 from one, so phase 7 cannot start until a repository is pushed.
+
+---
+
+## Phase 4 — API surface complete (H7:30–H8:30 allotted)
+
+**Prompt strategy.** No plan mode: most of what phase 4 asks for had already landed in phase 3
+— the shared filter dependency, the `{data, meta}` envelope, and Pydantic response models for
+every route. What genuinely remained was bearer auth, CORS for Vercel, `/api/overview`, and the
+route-level test gap logged at the end of phase 3. A plan for four known deliverables would
+have been ceremony. No subagents; nothing here benefits from an independent perspective the way
+metric correctness did.
+
+**Accepted.** Auth is attached **at router registration** rather than per-route, so a new
+endpoint cannot ship unprotected because someone forgot a decorator — the failure mode that
+matters is the one requiring no mistake to be visible. `/health` stays deliberately open: Render
+polls it during cold start and a 401 there fails the deployment, and the frontend uses it to
+distinguish "still waking up" from "rejected me". The token comparison uses
+`secrets.compare_digest` despite being a demo token, because `==` on a secret leaks its length
+and prefix through timing and the habit costs nothing. CORS gained an `allow_origin_regex`,
+because Vercel gives every preview deployment its own hostname and an exact-match list can only
+ever cover production — without it the first preview build fails CORS and reads as a backend
+outage. `/api/overview` returns all eight KPIs in one request rather than eight, since it is the
+first thing a cold Render dyno serves. Each card carries `higher_is_better`, and three-valued
+rather than boolean: headcount is genuinely directionless, and a green up-arrow on rising
+attrition asserts something false.
+
+**Rejected.** The route tests immediately failed on all three `/api/flight-risk` paths, and the
+first instinct — exempt them — was wrong. `CLAUDE.md` requires every metric endpoint to accept
+the shared filters, and flight risk had none. Filtering risk *by manager* also turns out to be
+the single most useful query in the product: `/api/flight-risk/bands?manager_id=M-114` returns
+`elevated=8` with no low or moderate, which is the entire bad-manager demo beat in one call. The
+routes were fixed rather than the test. Only `/weights` stays exempt, because it returns scoring
+constants rather than data and filtering a constant is meaningless.
+
+Two overview bugs were caught by looking at the rendered table rather than by any test.
+**eNPS read blank** — surveys are quarterly, the default window is three months, and the most
+recent survey fell in the *previous* window, so the card would have been empty on the landing
+page. Periodic metrics now compare latest reading against the one before it rather than
+window against window. And **revenue's sparkline had 20 points for 4 quarters**, because
+revenue arrives per (department, quarter) and each row was being plotted individually,
+interleaving departments into something that looked like a time series. Rows are now collapsed
+to one weighted figure per quarter — weighted by total revenue over total FTE, not the mean of
+per-department ratios, which would weight an 8-person department the same as a 340-person one.
+
+**The gap phase 3 logged is now closed.** 91 route-level tests go through `TestClient`: auth
+enforcement, every registered route serializing against its declared response model, the
+envelope surviving, filters echoed in `meta`, and an unsupported filter surfacing as 400 rather
+than 500. The phase-3 failure that prompted them — a response model requiring a field the data
+did not have — would now fail in under four seconds instead of reaching a live endpoint.
+
+**Numbers.** 12 files (4 new, 8 modified). **261 tests passing**, up from 170 — 91 of them new
+route-level tests. **42 endpoints**, 41 returning non-empty data, 40 requiring a bearer token;
+only the two health checks are open. `/api/engagement/themes` remains correctly empty until
+phase 6.
+
+**Blockers.** None for phase 5. Two open items unchanged: `ANTHROPIC_API_KEY` is still empty,
+and **there is still no git remote** — six commits exist only on this machine, and both Render
+and Vercel deploy from a remote, so phase 7 is blocked until one exists. Worth doing before the
+plan's sleep block rather than discovering it at H20:00.

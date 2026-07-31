@@ -31,6 +31,11 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5173"]
     )
 
+    #: Matched against the Origin header in addition to `cors_origins`. Vercel gives every
+    #: preview deployment a unique hostname, so an exact-match list covers production only.
+    #: Empty string disables it — FastAPI treats None and "" alike here.
+    cors_origin_regex: str | None = None
+
     demo_bearer_token: str = "dev-demo-token-change-me"
 
     anthropic_api_key: str | None = None

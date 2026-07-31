@@ -338,3 +338,31 @@ class FlightRisk(MetricModel):
 class RiskBandCount(MetricModel):
     band: str
     employees: int
+
+
+# --- Overview ---------------------------------------------------------------
+
+
+class Kpi(MetricModel):
+    key: str
+    label: str
+    value: float | None
+    previous: float | None
+    delta: float | None
+    delta_pct: float | None
+    #: Formatting hint only — the API returns raw numbers and the frontend formats them,
+    #: per CLAUDE.md. "rate" means a 0-1 fraction, not a percentage.
+    unit: str
+    #: None where direction is genuinely ambiguous. Headcount rising is neither good nor
+    #: bad without context, and a green arrow would assert otherwise.
+    higher_is_better: bool | None
+    sparkline: list[float | None]
+
+
+class Overview(MetricModel):
+    as_of: date | None
+    period_from: date | None
+    period_to: date | None
+    comparison_from: date | None
+    comparison_to: date | None
+    kpis: list[Kpi]
